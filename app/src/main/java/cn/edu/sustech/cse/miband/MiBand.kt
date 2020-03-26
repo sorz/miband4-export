@@ -4,6 +4,7 @@ import android.bluetooth.*
 import android.bluetooth.BluetoothGattDescriptor.DISABLE_NOTIFICATION_VALUE
 import android.bluetooth.BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
 import android.content.Context
+import androidx.collection.CircularArray
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleObserver
 import androidx.lifecycle.LifecycleOwner
@@ -34,6 +35,8 @@ class MiBand (
     private var connectContinuation: Continuation<Unit>? = null
     private var charWriteCont: MutableMap<UUID, Continuation<Unit>> = mutableMapOf()
     private var descWriteCont: MutableMap<Pair<UUID, UUID>, Continuation<Unit>> = mutableMapOf()
+    private var charChangeCont: MutableMap<UUID, Continuation<ByteArray>> = mutableMapOf()
+    private var charChangeQueue: MutableMap<UUID, CircularArray<ByteArray>> = mutableMapOf()
 
 
     init {
@@ -88,12 +91,8 @@ class MiBand (
                 cont.resume(Unit)
         }
 
-        override fun onCharacteristicWrite(
-            gatt: BluetoothGatt,
-            char: BluetoothGattCharacteristic,
-            status: Int
-        ) {
-            debug("characteristic WRITTEN $char $status")
+        override fun onCharacteristicWrite(gatt: BluetoothGatt, char: BluetoothGattCharacteristic, status: Int) {
+            debug("characteristic WRITTEN ${char.uuid} $status")
             val cont = charWriteCont.remove(char.uuid)
             if (cont == null) {
                 warn("characteristic $char not found")
@@ -103,8 +102,12 @@ class MiBand (
                 cont.resumeWithException(IOException("Fail to write characteristic: $status"))
             else
                 cont.resume(Unit)
+        }
 
-
+        override fun onCharacteristicChanged(gatt: BluetoothGatt, char: BluetoothGattCharacteristic) {
+            debug("characteristic CHANGED ${char.uuid} ${char.value}")
+            charChangeCont.remove(char.uuid)?.resume(char.value)
+                ?: charChangeQueue.getOrPut(char.uuid) { CircularArray() }.addLast(char.value)
         }
     }
 
@@ -126,6 +129,26 @@ class MiBand (
         }
     }
 
+    private suspend fun writeCharacteristic(char: BluetoothGattCharacteristic, value: ByteArray) {
+        if (charWriteCont.containsKey(char.uuid))
+            throw IllegalStateException("last writeCharacteristic() not finish")
+        return suspendCoroutine { cont ->
+            charWriteCont[char.uuid] = cont
+            char.value = value
+            bleGatt.writeCharacteristic(char)
+        }
+    }
+
+    private suspend fun readCharChange(char: BluetoothGattCharacteristic): ByteArray {
+        val queuedData = charChangeQueue[char.uuid]?.takeIf { !it.isEmpty }?.popFirst()
+        if (queuedData != null) return queuedData
+
+        if (charChangeCont.containsKey(char.uuid))
+            throw IllegalStateException("last enableNotification() not finish")
+        return suspendCoroutine { cont ->
+            charChangeCont[char.uuid] = cont
+        }
+    }
 
     private fun throwException(throwable: Throwable) {
         warn { "throw exception ${throwable.message}" }
@@ -146,8 +169,9 @@ class MiBand (
         }
         debug { "$device connected, auth self" }
         enableNotification(charAuth, true)
-        debug { "char auth notification enabled" }
-
+        writeCharacteristic(charAuth, AUTH_CHAR_CMD_REQUEST_CHALLENGE)
+        val resp = readCharChange(charAuth)
+        debug { "charAuth.value = $resp" }
     }
 
     @OnLifecycleEvent(Lifecycle.Event.ON_DESTROY)
