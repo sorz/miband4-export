@@ -5,7 +5,9 @@ import android.bluetooth.BluetoothManager
 import android.bluetooth.BluetoothProfile
 import android.bluetooth.le.ScanFilter
 import android.bluetooth.le.ScanSettings
+import android.content.Context
 import android.content.Context.BLUETOOTH_SERVICE
+import android.content.Context.MODE_PRIVATE
 import android.content.Intent
 import android.content.Intent.ACTION_OPEN_DOCUMENT_TREE
 import android.net.Uri
@@ -28,12 +30,14 @@ import java.util.*
 
 
 private const val REQUEST_SELECT_FILE = 1
+private const val PREF_FREE_MY_BAND_URI = "free-my-band-uri"
 
 class SelectFragment : Fragment(), AnkoLogger {
     private val bleScanner by lazy { BLEScanner(requireContext(), this) }
     private val bluetoothManager by lazy {
         requireContext().getSystemService(BLUETOOTH_SERVICE) as BluetoothManager
     }
+    private val preferences by lazy { requireActivity().getPreferences(MODE_PRIVATE) }
 
     override fun onCreateView(
         inflater: LayoutInflater, container: ViewGroup?,
@@ -52,13 +56,19 @@ class SelectFragment : Fragment(), AnkoLogger {
                 startActivityForResult(this, REQUEST_SELECT_FILE)
             }
         }
+
+        val uri = preferences.getString(PREF_FREE_MY_BAND_URI, null) ?: return
+        onFileSelected(Uri.parse(uri))
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         when (requestCode) {
             REQUEST_SELECT_FILE -> {
                 if (resultCode != Activity.RESULT_OK || data == null) return
-                data.data?.let { onFileSelected(it) }
+                data.data?.let { uri ->
+                    preferences.edit().putString(PREF_FREE_MY_BAND_URI, uri.toString()).apply()
+                    onFileSelected(uri)
+                }
             }
             else -> super.onActivityResult(requestCode, resultCode, data)
         }
