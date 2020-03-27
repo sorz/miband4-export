@@ -42,12 +42,9 @@ class MiBand (
     lifecycleOwner: LifecycleOwner
 ) : LifecycleObserver, AnkoLogger {
     private lateinit var bleGatt: BluetoothGatt
-    private lateinit var charAuth: BluetoothGattCharacteristic
-    private lateinit var charSteps: BluetoothGattCharacteristic
-    private lateinit var charFetch: BluetoothGattCharacteristic
-    private lateinit var charActivity: BluetoothGattCharacteristic
-    private lateinit var charHeartRateCtrl: BluetoothGattCharacteristic
-    private lateinit var charHeartRateData: BluetoothGattCharacteristic
+    private lateinit var serviceBand1: BluetoothGattService
+    private lateinit var serviceBand2: BluetoothGattService
+    private lateinit var serviceHeart: BluetoothGattService
 
     private val context = context.applicationContext
 
@@ -80,25 +77,12 @@ class MiBand (
 
         override fun onServicesDiscovered(gatt: BluetoothGatt, status: Int) {
             debug("service discovered ${gatt.services}")
-            val band1 = gatt.getService(UUID_SERVICE_MIBAND1)
+            serviceBand1 = gatt.getService(UUID_SERVICE_MIBAND1)
                 ?: return throwException(IOException("no MiBand1 service found"))
-            val band2 = gatt.getService(UUID_SERVICE_MIBAND2)
+            serviceBand2 = gatt.getService(UUID_SERVICE_MIBAND2)
                 ?: return throwException(IOException("no miBand2 service found"))
-            val heart = gatt.getService(UUID_SERVICE_HEART_RATE)
+            serviceHeart = gatt.getService(UUID_SERVICE_HEART_RATE)
                 ?: return throwException(IOException("no heart rate service found"))
-
-            charAuth = band2.getCharacteristic(UUID_CHAR_AUTH)
-                ?: return throwException(IOException("no auth characteristic found"))
-            charSteps = band1.getCharacteristic(UUID_CHAR_STEPS)
-                ?: return throwException(IOException("no steps characteristic found"))
-            charFetch = band1.getCharacteristic(UUID_CHAR_FETCH)
-                ?: return throwException(IOException("no fetch characteristic found"))
-            charActivity = band1.getCharacteristic(UUID_CHAR_ACTIVITY_DATA)
-                ?: return throwException(IOException("no activity characteristic found"))
-            charHeartRateCtrl = heart.getCharacteristic(UUID_CHAR_HEART_RATE_CTRL)
-                ?: return throwException(IOException("no heart rate control characteristic found"))
-            charHeartRateData = heart.getCharacteristic(UUID_CHAR_HEART_RATE_MEASURE)
-                ?: return throwException(IOException("no heart rate measure characteristic found"))
 
             connectContinuation?.resume(Unit)
             connectContinuation = null
@@ -109,7 +93,10 @@ class MiBand (
             descriptor: BluetoothGattDescriptor,
             status: Int
         ) {
-            debug("descriptor WRITTEN ${descriptor.characteristic.uuid} $status")
+            debug {
+                "descriptor WRITTEN ${descriptor.characteristic.uuid} $status " +
+                "${descriptor.value?.contentToString()}"
+            }
             val key = Pair(descriptor.characteristic.uuid, descriptor.uuid)
             val cont = descWriteCont.remove(key)
             if (cont == null) {
@@ -123,8 +110,9 @@ class MiBand (
                 cont.resume(Unit)
         }
 
-        override fun onCharacteristicWrite(gatt: BluetoothGatt, char: BluetoothGattCharacteristic, status: Int) {
-            debug("characteristic WRITTEN ${char.uuid} $status ${char.value?.contentToString()}")
+        override fun onCharacteristicWrite(gatt: BluetoothGatt,
+                                           char: BluetoothGattCharacteristic, status: Int) {
+            debug { "characteristic WRITTEN ${char.uuid} $status ${char.value?.contentToString()}" }
             val cont = charWriteCont.remove(char.uuid)
             if (cont == null) {
                 warn("characteristic $char not found")
@@ -137,9 +125,10 @@ class MiBand (
         }
 
         override fun onCharacteristicChanged(gatt: BluetoothGatt, char: BluetoothGattCharacteristic) {
-            debug("characteristic CHANGED ${char.uuid} ${char.value?.contentToString()}")
+            debug { "characteristic CHANGED ${char.uuid} ${char.value?.contentToString()}" }
             charChangeCont.remove(char.uuid)?.resume(char.value)
                 ?: charChangeQueue.getOrPut(char.uuid) { CircularArray() }.addLast(char.value)
+            println("characteristic CHANGED done")
         }
 
         override fun onCharacteristicRead(
@@ -158,7 +147,7 @@ class MiBand (
         if (descWriteCont.containsKey(key))
             throw IllegalStateException("last enableNotification() not finish")
 
-        if (!bleGatt.setCharacteristicNotification(charAuth, enable))
+        if (!bleGatt.setCharacteristicNotification(char, enable))
             throw IOException("fail to set notification on $char")
 
         return suspendCoroutine { cont ->
@@ -217,6 +206,11 @@ class MiBand (
     }
 
     suspend fun fetchData(since: LocalDateTime) {
+        val charFetch = serviceBand1.getCharacteristic(UUID_CHAR_FETCH)
+            ?: throw IOException("char fetch not found")
+        val charActivity = serviceBand1.getCharacteristic(UUID_CHAR_ACTIVITY_DATA)
+            ?: throw IOException("char activity data not found")
+
         enableNotification(charFetch, true)
         enableNotification(charActivity, true)
         clearCharChangeQueue(charFetch)
@@ -228,10 +222,14 @@ class MiBand (
 
         val resp = readCharChange(charFetch)
         debug { "resp = ${resp.contentToString()}" }
-
     }
 
     suspend fun startRealtimeHeartRate() {
+        val charHeartRateCtrl = serviceHeart.getCharacteristic(UUID_CHAR_HEART_RATE_CTRL)
+            ?: throw IOException("char heart rate control not found")
+        val charHeartRateData = serviceHeart.getCharacteristic(UUID_CHAR_HEART_RATE_MEASURE)
+            ?: throw IOException("char heart rate measure not found")
+
         // Stop monitor continues & manual
         writeCharacteristic(charHeartRateCtrl, byteArrayOf(0x15, 0x01, 0x00))
         writeCharacteristic(charHeartRateCtrl, byteArrayOf(0x15, 0x02, 0x00))
@@ -250,6 +248,9 @@ class MiBand (
     }
 
     private suspend fun authSelf() {
+        val charAuth = serviceBand2.getCharacteristic(UUID_CHAR_AUTH)
+            ?: throw IOException("char auth not found")
+
         enableNotification(charAuth, true)
         clearCharChangeQueue(charAuth)
 
