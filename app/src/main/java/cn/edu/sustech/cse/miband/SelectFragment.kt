@@ -56,9 +56,24 @@ class SelectFragment : Fragment(), AnkoLogger {
                 startActivityForResult(this, REQUEST_SELECT_FILE)
             }
         }
-
-        val uri = preferences.getString(PREF_FREE_MY_BAND_URI, null) ?: return
-        onFileSelected(Uri.parse(uri))
+        connect_button.setOnClickListener { button ->
+            val uri = preferences.getString(PREF_FREE_MY_BAND_URI, null)
+            if (uri == null) {
+                showSnack("Please select FreeMyBand folder first")
+                return@setOnClickListener
+            }
+            viewLifecycleOwner.lifecycleScope.launchWhenResumed {
+                button.isEnabled = false
+                val deviceKeys = readDeviceKeys(Uri.parse(uri))
+                if (deviceKeys.isEmpty()) {
+                    showSnack("No key found in FreeMyBand folder")
+                    return@launchWhenResumed
+                }
+                scan(deviceKeys)
+            }.invokeOnCompletion {
+                button.isEnabled = true
+            }
+        }
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
@@ -67,41 +82,35 @@ class SelectFragment : Fragment(), AnkoLogger {
                 if (resultCode != Activity.RESULT_OK || data == null) return
                 data.data?.let { uri ->
                     preferences.edit().putString(PREF_FREE_MY_BAND_URI, uri.toString()).apply()
-                    onFileSelected(uri)
                 }
             }
             else -> super.onActivityResult(requestCode, resultCode, data)
         }
     }
 
-    private fun onFileSelected(uri: Uri) {
-        val folder = DocumentFile.fromTreeUri(requireContext(), uri) ?: return
+    private suspend fun readDeviceKeys(uri: Uri): Map<String, String> {
+        val folder = DocumentFile.fromTreeUri(requireContext(), uri) ?: return mapOf()
         val files = folder.listFiles().filter {
             it.isFile && it.canRead() &&
                     it.name.orEmpty().matches(Regex("miband[0-9A-F]{12}\\.txt"))
         }
         val resolver = requireContext().contentResolver
-        lifecycleScope.launchWhenResumed {
-            val regex = Regex("([0-9A-F:]{17});([0-9a-f]{32})")
-            val macKey = mutableMapOf<String, String>()
-            withContext(Dispatchers.IO) {
-                for (file in files) {
-                    val content = resolver.openInputStream(file.uri)
-                        ?.reader()
-                        ?.readText()
-                        ?.trim() ?: continue
-                    val groups = regex.find(content)?.groups ?: continue
-                    val mac = groups[1]?.value?.toUpperCase(Locale.ENGLISH) ?: continue
-                    val key = groups[2]?.value ?: continue
-                    macKey[mac] = key
-                }
-            }
-            if (macKey.isEmpty()) {
-                showSnack("No key found in freemyband")
-            } else {
-                scan(macKey)
+
+        val regex = Regex("([0-9A-F:]{17});([0-9a-f]{32})")
+        val macKey = mutableMapOf<String, String>()
+        withContext(Dispatchers.IO) {
+            for (file in files) {
+                val content = resolver.openInputStream(file.uri)
+                    ?.reader()
+                    ?.readText()
+                    ?.trim() ?: continue
+                val groups = regex.find(content)?.groups ?: continue
+                val mac = groups[1]?.value?.toUpperCase(Locale.ENGLISH) ?: continue
+                val key = groups[2]?.value ?: continue
+                macKey[mac] = key
             }
         }
+        return macKey
     }
 
     private suspend fun scan(macKey: Map<String, String>) {
