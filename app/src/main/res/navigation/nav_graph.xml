@@ -9,6 +9,25 @@
         android:id="@+id/selectFragment"
         android:name="cn.edu.sustech.cse.miband.SelectFragment"
         android:label="fragment_select"
-        tools:layout="@layout/fragment_select" />
+        tools:layout="@layout/fragment_select">
+        <action
+            android:id="@+id/action_connect"
+            app:destination="@+id/deviceFragment" />
+    </fragment>
+
+    <fragment
+        android:id="@+id/deviceFragment"
+        android:name="cn.edu.sustech.cse.miband.DeviceFragment"
+        android:label="fragment_device"
+        tools:layout="@layout/fragment_device">
+        <argument
+            android:name="device"
+            app:argType="android.bluetooth.BluetoothDevice"
+            app:nullable="false" />
+        <argument
+            android:name="key"
+            app:argType="string"
+            app:nullable="false" />
+    </fragment>
 
 </navigation>

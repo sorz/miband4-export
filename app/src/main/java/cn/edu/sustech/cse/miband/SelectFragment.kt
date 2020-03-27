@@ -5,7 +5,6 @@ import android.bluetooth.BluetoothManager
 import android.bluetooth.BluetoothProfile
 import android.bluetooth.le.ScanFilter
 import android.bluetooth.le.ScanSettings
-import android.content.Context
 import android.content.Context.BLUETOOTH_SERVICE
 import android.content.Context.MODE_PRIVATE
 import android.content.Intent
@@ -20,6 +19,7 @@ import android.view.View
 import android.view.ViewGroup
 import androidx.documentfile.provider.DocumentFile
 import androidx.lifecycle.lifecycleScope
+import androidx.navigation.fragment.findNavController
 import kotlinx.android.synthetic.main.fragment_select.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -83,7 +83,7 @@ class SelectFragment : Fragment(), AnkoLogger {
         val resolver = requireContext().contentResolver
         lifecycleScope.launchWhenResumed {
             val regex = Regex("([0-9A-F:]{17});([0-9a-f]{32})")
-            val macKey = mutableMapOf<String, ByteArray>()
+            val macKey = mutableMapOf<String, String>()
             withContext(Dispatchers.IO) {
                 for (file in files) {
                     val content = resolver.openInputStream(file.uri)
@@ -93,9 +93,7 @@ class SelectFragment : Fragment(), AnkoLogger {
                     val groups = regex.find(content)?.groups ?: continue
                     val mac = groups[1]?.value?.toUpperCase(Locale.ENGLISH) ?: continue
                     val key = groups[2]?.value ?: continue
-                    macKey[mac] = ByteArray(key.length / 2) { i ->
-                        key.substring(i * 2, i * 2 + 2).toInt(16).toByte()
-                    }
+                    macKey[mac] = key
                 }
             }
             if (macKey.isEmpty()) {
@@ -106,7 +104,7 @@ class SelectFragment : Fragment(), AnkoLogger {
         }
     }
 
-    private suspend fun scan(macKey: Map<String, ByteArray>) {
+    private suspend fun scan(macKey: Map<String, String>) {
         if (!bleScanner.initialize(requireActivity(), this)) {
             showSnack("permission denied")
             return
@@ -127,8 +125,10 @@ class SelectFragment : Fragment(), AnkoLogger {
         debug { "${device.name} (${device.address}) found" }
 
         val key = macKey[device.address.toUpperCase(Locale.ENGLISH)] ?: error("missing key")
-        val band = MiBand(requireContext(), device, key, viewLifecycleOwner)
-        band.connect()
-        showSnack("${device.name} (${device.address}) connected")
+
+        SelectFragmentDirections.actionConnect(device, key).apply {
+            findNavController().navigate(this)
+        }
+
     }
 }
