@@ -47,5 +47,11 @@ class DeviceFragment : Fragment() {
                 }
             }
         }
+
+        heart_rate_button.setOnClickListener {
+            viewLifecycleOwner.lifecycleScope.launchWhenResumed {
+                viewModel.monitorHeartRate()
+            }
+        }
     }
 }

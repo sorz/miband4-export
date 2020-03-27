@@ -10,6 +10,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.OnLifecycleEvent
+import kotlinx.coroutines.delay
 import org.jetbrains.anko.AnkoLogger
 import org.jetbrains.anko.debug
 import org.jetbrains.anko.warn
@@ -45,6 +46,8 @@ class MiBand (
     private lateinit var charSteps: BluetoothGattCharacteristic
     private lateinit var charFetch: BluetoothGattCharacteristic
     private lateinit var charActivity: BluetoothGattCharacteristic
+    private lateinit var charHeartRateCtrl: BluetoothGattCharacteristic
+    private lateinit var charHeartRateData: BluetoothGattCharacteristic
 
     private val context = context.applicationContext
 
@@ -81,6 +84,8 @@ class MiBand (
                 ?: return throwException(IOException("no MiBand1 service found"))
             val band2 = gatt.getService(UUID_SERVICE_MIBAND2)
                 ?: return throwException(IOException("no miBand2 service found"))
+            val heart = gatt.getService(UUID_SERVICE_HEART_RATE)
+                ?: return throwException(IOException("no heart rate service found"))
 
             charAuth = band2.getCharacteristic(UUID_CHAR_AUTH)
                 ?: return throwException(IOException("no auth characteristic found"))
@@ -90,6 +95,11 @@ class MiBand (
                 ?: return throwException(IOException("no fetch characteristic found"))
             charActivity = band1.getCharacteristic(UUID_CHAR_ACTIVITY_DATA)
                 ?: return throwException(IOException("no activity characteristic found"))
+            charHeartRateCtrl = heart.getCharacteristic(UUID_CHAR_HEART_RATE_CTRL)
+                ?: return throwException(IOException("no heart rate control characteristic found"))
+            charHeartRateData = heart.getCharacteristic(UUID_CHAR_HEART_RATE_MEASURE)
+                ?: return throwException(IOException("no heart rate measure characteristic found"))
+
             connectContinuation?.resume(Unit)
             connectContinuation = null
         }
@@ -131,6 +141,14 @@ class MiBand (
             charChangeCont.remove(char.uuid)?.resume(char.value)
                 ?: charChangeQueue.getOrPut(char.uuid) { CircularArray() }.addLast(char.value)
         }
+
+        override fun onCharacteristicRead(
+            gatt: BluetoothGatt,
+            char: BluetoothGattCharacteristic,
+            status: Int
+        ) {
+            debug("characteristic READ ${char.uuid} ${char.value?.contentToString()}")
+        }
     }
 
     private suspend fun enableNotification(char: BluetoothGattCharacteristic, enable: Boolean) {
@@ -145,7 +163,7 @@ class MiBand (
 
         return suspendCoroutine { cont ->
             descWriteCont[key] = cont
-            desc.value = if (enable)  ENABLE_NOTIFICATION_VALUE else DISABLE_NOTIFICATION_VALUE
+            desc.value = if (enable) ENABLE_NOTIFICATION_VALUE else DISABLE_NOTIFICATION_VALUE
             if (!bleGatt.writeDescriptor(desc))
                 cont.resumeWithException(IOException("fail to config descriptor $this"))
         }
@@ -157,7 +175,8 @@ class MiBand (
         return suspendCoroutine { cont ->
             charWriteCont[char.uuid] = cont
             char.value = value
-            bleGatt.writeCharacteristic(char)
+            if (!bleGatt.writeCharacteristic(char))
+                throw IOException("fail to write characteristic ${char.uuid}")
         }
     }
 
@@ -207,10 +226,27 @@ class MiBand (
         val trigger = byteArrayOf(0x01, 0x01) + since.toByteArray() + byteArrayOf(0x00, 0x17)
         writeCharacteristic(charFetch, trigger)
 
-
         val resp = readCharChange(charFetch)
         debug { "resp = ${resp.contentToString()}" }
 
+    }
+
+    suspend fun startRealtimeHeartRate() {
+        // Stop monitor continues & manual
+        writeCharacteristic(charHeartRateCtrl, byteArrayOf(0x15, 0x01, 0x00))
+        writeCharacteristic(charHeartRateCtrl, byteArrayOf(0x15, 0x02, 0x00))
+
+        // Start monitor continues
+        enableNotification(charHeartRateData, true)
+        writeCharacteristic(charHeartRateCtrl, byteArrayOf(0x15, 0x01, 0x01))
+
+        // TODO: send ping every 12 seconds
+        while (true) {
+            delay(12_000)
+            writeCharacteristic(charHeartRateCtrl, byteArrayOf(0x16))
+        }
+
+        //readCharChange(charHeartRateData)
     }
 
     private suspend fun authSelf() {
@@ -235,7 +271,8 @@ class MiBand (
             throw IOException("Fail to authenticate self (wrong key?)")
         }
         debug { "self authenticated" }
-        //enableNotification(charAuth, false)
+
+        enableNotification(charAuth, false)
     }
 
     @SuppressLint("GetInstance")
