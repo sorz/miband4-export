@@ -172,7 +172,7 @@ class MiBand (
         suspendCoroutine { cont: Continuation<Unit> ->
             connectContinuation = cont
             debug { "connecting to $device" }
-            device.connectGatt(context, false, gattCallback)
+            device.connectGatt(context, true, gattCallback)
         }
         enableNotification(charAuth, true)
 

@@ -1,8 +1,11 @@
 package cn.edu.sustech.cse.miband
 
 import android.app.Activity
+import android.bluetooth.BluetoothManager
+import android.bluetooth.BluetoothProfile
 import android.bluetooth.le.ScanFilter
 import android.bluetooth.le.ScanSettings
+import android.content.Context.BLUETOOTH_SERVICE
 import android.content.Intent
 import android.content.Intent.ACTION_OPEN_DOCUMENT_TREE
 import android.net.Uri
@@ -28,6 +31,9 @@ private const val REQUEST_SELECT_FILE = 1
 
 class SelectFragment : Fragment(), AnkoLogger {
     private val bleScanner by lazy { BLEScanner(requireContext(), this) }
+    private val bluetoothManager by lazy {
+        requireContext().getSystemService(BLUETOOTH_SERVICE) as BluetoothManager
+    }
 
     override fun onCreateView(
         inflater: LayoutInflater, container: ViewGroup?,
@@ -95,17 +101,24 @@ class SelectFragment : Fragment(), AnkoLogger {
             showSnack("permission denied")
             return
         }
-        val filters = macKey.keys.map {
-            debug { "filter $it added" }
-            ScanFilter.Builder().setDeviceAddress(it).build()
+
+        var device = bluetoothManager.getConnectedDevices(BluetoothProfile.GATT).find {
+            macKey.containsKey(it.address.toUpperCase(Locale.ENGLISH))
         }
-        val settings = ScanSettings.Builder().build()
-        val device = bleScanner.startScan(filters, settings).receive()
+        if (device == null) {
+            debug { "no connected device, search for new one" }
+            val filters = macKey.keys.map {
+                debug { "filter $it added" }
+                ScanFilter.Builder().setDeviceAddress(it).build()
+            }
+            val settings = ScanSettings.Builder().build()
+            device = bleScanner.startScan(filters, settings).receive()
+        }
         debug { "${device.name} (${device.address}) found" }
+
         val key = macKey[device.address.toUpperCase(Locale.ENGLISH)] ?: error("missing key")
         val band = MiBand(requireContext(), device, key, viewLifecycleOwner)
         band.connect()
         showSnack("${device.name} (${device.address}) connected")
     }
-
 }
