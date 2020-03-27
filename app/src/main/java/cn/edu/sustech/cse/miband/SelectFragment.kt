@@ -67,7 +67,7 @@ class SelectFragment : Fragment(), AnkoLogger {
         val resolver = requireContext().contentResolver
         lifecycleScope.launchWhenResumed {
             val regex = Regex("([0-9A-F:]{17});([0-9a-f]{32})")
-            val macKey = mutableMapOf<String, String>()
+            val macKey = mutableMapOf<String, ByteArray>()
             withContext(Dispatchers.IO) {
                 for (file in files) {
                     val content = resolver.openInputStream(file.uri)
@@ -77,7 +77,9 @@ class SelectFragment : Fragment(), AnkoLogger {
                     val groups = regex.find(content)?.groups ?: continue
                     val mac = groups[1]?.value?.toUpperCase(Locale.ENGLISH) ?: continue
                     val key = groups[2]?.value ?: continue
-                    macKey[mac] = key
+                    macKey[mac] = ByteArray(key.length / 2) { i ->
+                        key.substring(i * 2, i * 2 + 2).toInt(16).toByte()
+                    }
                 }
             }
             if (macKey.isEmpty()) {
@@ -88,7 +90,7 @@ class SelectFragment : Fragment(), AnkoLogger {
         }
     }
 
-    private suspend fun scan(macKey: Map<String, String>) {
+    private suspend fun scan(macKey: Map<String, ByteArray>) {
         if (!bleScanner.initialize(requireActivity(), this)) {
             showSnack("permission denied")
             return

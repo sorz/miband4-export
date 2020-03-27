@@ -1,5 +1,6 @@
 package cn.edu.sustech.cse.miband
 
+import android.annotation.SuppressLint
 import android.bluetooth.*
 import android.bluetooth.BluetoothGattDescriptor.DISABLE_NOTIFICATION_VALUE
 import android.bluetooth.BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
@@ -15,17 +16,23 @@ import org.jetbrains.anko.warn
 import java.io.IOException
 import java.lang.IllegalStateException
 import java.util.*
+import javax.crypto.Cipher
+import javax.crypto.Cipher.ENCRYPT_MODE
+import javax.crypto.spec.SecretKeySpec
 import kotlin.coroutines.Continuation
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 import kotlin.coroutines.suspendCoroutine
 
 private val AUTH_CHAR_CMD_REQUEST_CHALLENGE = byteArrayOf(0x02, 0x00)
+private val AUTH_CHAR_CMD_CHALLENGE_RESPONSE = byteArrayOf(0x03, 0x00)
+private val AUTH_CHAR_RESP_CHALLENGE = byteArrayOf(0x10, 0x02, 0x01)
+private val AUTH_CHAR_RESP_AUTH_OK = byteArrayOf(0x10, 0x03, 0x01)
 
 class MiBand (
     context: Context,
     private val device: BluetoothDevice,
-    private val key: String,
+    private val key: ByteArray,
     lifecycleOwner: LifecycleOwner
 ) : LifecycleObserver, AnkoLogger {
     private lateinit var bleGatt: BluetoothGatt
@@ -105,7 +112,7 @@ class MiBand (
         }
 
         override fun onCharacteristicChanged(gatt: BluetoothGatt, char: BluetoothGattCharacteristic) {
-            debug("characteristic CHANGED ${char.uuid} ${char.value}")
+            debug("characteristic CHANGED ${char.uuid} ${char.value.contentToString()}")
             charChangeCont.remove(char.uuid)?.resume(char.value)
                 ?: charChangeQueue.getOrPut(char.uuid) { CircularArray() }.addLast(char.value)
         }
@@ -167,11 +174,41 @@ class MiBand (
             debug { "connecting to $device" }
             device.connectGatt(context, false, gattCallback)
         }
-        debug { "$device connected, auth self" }
         enableNotification(charAuth, true)
+
+        debug { "$device connected, auth self" }
+        authSelf()
+
+
+    }
+
+    private suspend fun authSelf() {
+        // Request challenge
         writeCharacteristic(charAuth, AUTH_CHAR_CMD_REQUEST_CHALLENGE)
         val resp = readCharChange(charAuth)
-        debug { "charAuth.value = $resp" }
+        if (!resp.startsWith(AUTH_CHAR_RESP_CHALLENGE))
+            throw IOException("expect AUTH_CHAR_RESP_CHALLENGE, got ${resp.contentToString()}")
+        if (resp.size != AUTH_CHAR_RESP_CHALLENGE.size + 16)
+            throw IOException("wrong size of challenge: ${resp.size}")
+        val challenge = resp.sliceArray(AUTH_CHAR_RESP_CHALLENGE.size until resp.size)
+
+        // Send back challenge
+        val response = encryptChallenge(challenge)
+        writeCharacteristic(charAuth, AUTH_CHAR_CMD_CHALLENGE_RESPONSE + response)
+        val result = readCharChange(charAuth)
+        if (!result.contentEquals(AUTH_CHAR_RESP_AUTH_OK)) {
+            warn { "self auth failed, response: ${result.contentToString()}" }
+            throw IOException("Fail to authenticate self (wrong key?)")
+        }
+        debug { "self authenticated" }
+    }
+
+    @SuppressLint("GetInstance")
+    private fun encryptChallenge(challenge: ByteArray): ByteArray {
+        val keySpec = SecretKeySpec(key, "AES")
+        val cipher = Cipher.getInstance("AES/ECB/NoPadding")
+        cipher.init(ENCRYPT_MODE, keySpec)
+        return cipher.doFinal(challenge)
     }
 
     @OnLifecycleEvent(Lifecycle.Event.ON_DESTROY)
@@ -179,5 +216,11 @@ class MiBand (
         if (::bleGatt.isInitialized)
             bleGatt.disconnect()
     }
+}
 
+fun ByteArray.startsWith(head: ByteArray): Boolean {
+    if (size < head.size) return false
+    for (i in head.indices)
+        if (this[i] != head[i]) return false
+    return true
 }
