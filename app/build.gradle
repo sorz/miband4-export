@@ -1,6 +1,7 @@
 apply plugin: 'com.android.application'
 apply plugin: 'kotlin-android'
 apply plugin: 'kotlin-android-extensions'
+apply plugin: 'kotlin-kapt'
 apply plugin: "androidx.navigation.safeargs.kotlin"
 
 android {
@@ -45,6 +46,8 @@ dependencies {
     implementation "org.jetbrains.anko:anko-commons:0.10.8"
     implementation 'com.github.sorz:blescanner:e8e500c092'
     implementation 'androidx.legacy:legacy-support-v4:1.0.0'
+    implementation 'com.jakewharton.threetenabp:threetenabp:1.2.2'
+    kapt 'com.android.databinding:compiler:3.1.4'
     testImplementation 'junit:junit:4.12'
     androidTestImplementation 'androidx.test.ext:junit:1.1.1'
     androidTestImplementation 'androidx.test.espresso:espresso-core:3.2.0'

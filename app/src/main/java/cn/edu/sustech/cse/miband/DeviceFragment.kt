@@ -9,6 +9,8 @@ import androidx.fragment.app.viewModels
 import androidx.lifecycle.lifecycleScope
 import androidx.navigation.fragment.navArgs
 import cn.edu.sustech.cse.miband.databinding.FragmentDeviceBinding
+import kotlinx.android.synthetic.main.fragment_device.*
+import java.io.IOException
 
 
 class DeviceFragment : Fragment() {
@@ -19,6 +21,7 @@ class DeviceFragment : Fragment() {
         inflater: LayoutInflater, container: ViewGroup?,
         savedInstanceState: Bundle?
     ): View? = FragmentDeviceBinding.inflate(inflater, container, false).apply {
+        lifecycleOwner = this@DeviceFragment
         model = viewModel
         device = args.device
     }.root
@@ -26,13 +29,23 @@ class DeviceFragment : Fragment() {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
 
-        viewLifecycleOwner.lifecycleScope.launchWhenResumed {
+        viewLifecycleOwner.lifecycleScope.launchWhenStarted {
             val key = ByteArray(args.key.length / 2) { i ->
                 args.key.substring(i * 2, i * 2 + 2).toInt(16).toByte()
             }
             val band = MiBand(requireContext(), args.device, key, viewLifecycleOwner)
             band.connect()
-            showSnack("${args.device.name} (${args.device.address}) connected")
+            viewModel.setConnected(band)
+        }
+
+        fetch_button.setOnClickListener {
+            viewLifecycleOwner.lifecycleScope.launchWhenStarted {
+                try {
+                    viewModel.fetchData()
+                } catch (err: IOException) {
+                    showSnack(err.localizedMessage ?: "I/O error")
+                }
+            }
         }
     }
 }

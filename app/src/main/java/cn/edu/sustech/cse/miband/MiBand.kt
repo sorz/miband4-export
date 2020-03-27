@@ -13,8 +13,12 @@ import androidx.lifecycle.OnLifecycleEvent
 import org.jetbrains.anko.AnkoLogger
 import org.jetbrains.anko.debug
 import org.jetbrains.anko.warn
+import org.threeten.bp.LocalDateTime
 import java.io.IOException
+import java.lang.IllegalArgumentException
 import java.lang.IllegalStateException
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 import java.util.*
 import javax.crypto.Cipher
 import javax.crypto.Cipher.ENCRYPT_MODE
@@ -29,6 +33,7 @@ private val AUTH_CHAR_CMD_CHALLENGE_RESPONSE = byteArrayOf(0x03, 0x00)
 private val AUTH_CHAR_RESP_CHALLENGE = byteArrayOf(0x10, 0x02, 0x01)
 private val AUTH_CHAR_RESP_AUTH_OK = byteArrayOf(0x10, 0x03, 0x01)
 
+
 class MiBand (
     context: Context,
     private val device: BluetoothDevice,
@@ -37,6 +42,10 @@ class MiBand (
 ) : LifecycleObserver, AnkoLogger {
     private lateinit var bleGatt: BluetoothGatt
     private lateinit var charAuth: BluetoothGattCharacteristic
+    private lateinit var charSteps: BluetoothGattCharacteristic
+    private lateinit var charFetch: BluetoothGattCharacteristic
+    private lateinit var charActivity: BluetoothGattCharacteristic
+
     private val context = context.applicationContext
 
     private var connectContinuation: Continuation<Unit>? = null
@@ -73,8 +82,14 @@ class MiBand (
             val band2 = gatt.getService(UUID_SERVICE_MIBAND2)
                 ?: return throwException(IOException("no miBand2 service found"))
 
-            charAuth = band2.getCharacteristic(UUID_CHARACTERISTIC_AUTH)
+            charAuth = band2.getCharacteristic(UUID_CHAR_AUTH)
                 ?: return throwException(IOException("no auth characteristic found"))
+            charSteps = band1.getCharacteristic(UUID_CHAR_STEPS)
+                ?: return throwException(IOException("no steps characteristic found"))
+            charFetch = band1.getCharacteristic(UUID_CHAR_FETCH)
+                ?: return throwException(IOException("no fetch characteristic found"))
+            charActivity = band1.getCharacteristic(UUID_CHAR_ACTIVITY_DATA)
+                ?: return throwException(IOException("no activity characteristic found"))
             connectContinuation?.resume(Unit)
             connectContinuation = null
         }
@@ -84,7 +99,7 @@ class MiBand (
             descriptor: BluetoothGattDescriptor,
             status: Int
         ) {
-            debug("descriptor WRITTEN $descriptor $status")
+            debug("descriptor WRITTEN ${descriptor.characteristic.uuid} $status")
             val key = Pair(descriptor.characteristic.uuid, descriptor.uuid)
             val cont = descWriteCont.remove(key)
             if (cont == null) {
@@ -99,7 +114,7 @@ class MiBand (
         }
 
         override fun onCharacteristicWrite(gatt: BluetoothGatt, char: BluetoothGattCharacteristic, status: Int) {
-            debug("characteristic WRITTEN ${char.uuid} $status")
+            debug("characteristic WRITTEN ${char.uuid} $status ${char.value?.contentToString()}")
             val cont = charWriteCont.remove(char.uuid)
             if (cont == null) {
                 warn("characteristic $char not found")
@@ -112,7 +127,7 @@ class MiBand (
         }
 
         override fun onCharacteristicChanged(gatt: BluetoothGatt, char: BluetoothGattCharacteristic) {
-            debug("characteristic CHANGED ${char.uuid} ${char.value.contentToString()}")
+            debug("characteristic CHANGED ${char.uuid} ${char.value?.contentToString()}")
             charChangeCont.remove(char.uuid)?.resume(char.value)
                 ?: charChangeQueue.getOrPut(char.uuid) { CircularArray() }.addLast(char.value)
         }
@@ -157,6 +172,10 @@ class MiBand (
         }
     }
 
+    private fun clearCharChangeQueue(char: BluetoothGattCharacteristic) {
+        charChangeQueue.remove(char.uuid)
+    }
+
     private fun throwException(throwable: Throwable) {
         warn { "throw exception ${throwable.message}" }
         connectContinuation?.apply {
@@ -174,15 +193,30 @@ class MiBand (
             debug { "connecting to $device" }
             device.connectGatt(context, true, gattCallback)
         }
-        enableNotification(charAuth, true)
-
         debug { "$device connected, auth self" }
         authSelf()
+    }
 
+    suspend fun fetchData(since: LocalDateTime) {
+        enableNotification(charFetch, true)
+        enableNotification(charActivity, true)
+        clearCharChangeQueue(charFetch)
+        clearCharChangeQueue(charActivity)
+
+        // Send trigger to charFetch
+        val trigger = byteArrayOf(0x01, 0x01) + since.toByteArray() + byteArrayOf(0x00, 0x17)
+        writeCharacteristic(charFetch, trigger)
+
+
+        val resp = readCharChange(charFetch)
+        debug { "resp = ${resp.contentToString()}" }
 
     }
 
     private suspend fun authSelf() {
+        enableNotification(charAuth, true)
+        clearCharChangeQueue(charAuth)
+
         // Request challenge
         writeCharacteristic(charAuth, AUTH_CHAR_CMD_REQUEST_CHALLENGE)
         val resp = readCharChange(charAuth)
@@ -201,6 +235,7 @@ class MiBand (
             throw IOException("Fail to authenticate self (wrong key?)")
         }
         debug { "self authenticated" }
+        //enableNotification(charAuth, false)
     }
 
     @SuppressLint("GetInstance")
@@ -223,4 +258,22 @@ fun ByteArray.startsWith(head: ByteArray): Boolean {
     for (i in head.indices)
         if (this[i] != head[i]) return false
     return true
+}
+
+private fun LocalDateTime.toByteArray() = ByteBuffer.allocate(6).apply {
+    order(ByteOrder.LITTLE_ENDIAN)
+    putShort(year.toShort())
+    put(monthValue.toByte())
+    put(dayOfMonth.toByte())
+    put(hour.toByte())
+    put(minute.toByte())
+}.array()
+
+private fun ByteArray.toDateTime(): LocalDateTime {
+    if (size != 6) throw IllegalArgumentException("Wrong size of datetime $size")
+    ByteBuffer.wrap(this).apply {
+        order(ByteOrder.LITTLE_ENDIAN)
+        return LocalDateTime.of(short.toInt(), get().toInt(),
+            get().toInt(), get().toInt(), get().toInt())
+    }
 }

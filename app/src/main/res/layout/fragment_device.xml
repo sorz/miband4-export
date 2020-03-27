@@ -26,6 +26,18 @@
             android:layout_marginTop="8dp"
             android:text='@{device.name + " (" + device.address + ")"}'
             app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintTop_toTopOf="parent" />
+            app:layout_constraintTop_toTopOf="parent"
+            tools:text="MiBand 4 (ab:cd:ef:12:34:56)" />
+
+        <Button
+            android:id="@+id/fetch_button"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="32dp"
+            android:text="Fetch data"
+            android:enabled="@{model.connected}"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toBottomOf="@+id/textView" />
     </androidx.constraintlayout.widget.ConstraintLayout>
 </layout>
