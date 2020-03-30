@@ -14,7 +14,7 @@ class DeviceViewModel : ViewModel() {
     }
 
     suspend fun fetchData() {
-        val since = LocalDateTime.of(2020, 3, 27, 0, 0, 0)
+        val since = LocalDateTime.of(2020, 3, 30, 0, 0, 0)
         miBand?.fetchData(since)
     }
 

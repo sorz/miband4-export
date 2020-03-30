@@ -10,7 +10,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.OnLifecycleEvent
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.*
 import org.jetbrains.anko.AnkoLogger
 import org.jetbrains.anko.debug
 import org.jetbrains.anko.warn
@@ -24,15 +24,16 @@ import java.util.*
 import javax.crypto.Cipher
 import javax.crypto.Cipher.ENCRYPT_MODE
 import javax.crypto.spec.SecretKeySpec
-import kotlin.coroutines.Continuation
-import kotlin.coroutines.resume
-import kotlin.coroutines.resumeWithException
-import kotlin.coroutines.suspendCoroutine
+import kotlin.coroutines.*
 
 private val AUTH_CHAR_CMD_REQUEST_CHALLENGE = byteArrayOf(0x02, 0x00)
 private val AUTH_CHAR_CMD_CHALLENGE_RESPONSE = byteArrayOf(0x03, 0x00)
 private val AUTH_CHAR_RESP_CHALLENGE = byteArrayOf(0x10, 0x02, 0x01)
 private val AUTH_CHAR_RESP_AUTH_OK = byteArrayOf(0x10, 0x03, 0x01)
+private val FETCH_CHAR_CMD_CONFIRM = byteArrayOf(0x02)
+private val FETCH_CHAR_RESP_START_TIME = byteArrayOf(0x10, 0x01, 0x01)
+private val FETCH_CHAR_RESP_FINISHED = byteArrayOf(0x10, 0x02, 0x01)
+private val FETCH_CHAR_RESP_NO_DATA = byteArrayOf(0x10, 0x02, 0x04)
 
 
 class MiBand (
@@ -128,7 +129,6 @@ class MiBand (
             debug { "characteristic CHANGED ${char.uuid} ${char.value?.contentToString()}" }
             charChangeCont.remove(char.uuid)?.resume(char.value)
                 ?: charChangeQueue.getOrPut(char.uuid) { CircularArray() }.addLast(char.value)
-            println("characteristic CHANGED done")
         }
 
         override fun onCharacteristicRead(
@@ -175,8 +175,12 @@ class MiBand (
 
         if (charChangeCont.containsKey(char.uuid))
             throw IllegalStateException("last enableNotification() not finish")
-        return suspendCoroutine { cont ->
-            charChangeCont[char.uuid] = cont
+        return try {
+            suspendCancellableCoroutine { cont ->
+                charChangeCont[char.uuid] = cont
+            }
+        } finally {
+            charChangeCont.remove(char.uuid)
         }
     }
 
@@ -205,7 +209,7 @@ class MiBand (
         authSelf()
     }
 
-    suspend fun fetchData(since: LocalDateTime) {
+    suspend fun fetchData(since: LocalDateTime) = withContext(coroutineContext) {
         val charFetch = serviceBand1.getCharacteristic(UUID_CHAR_FETCH)
             ?: throw IOException("char fetch not found")
         val charActivity = serviceBand1.getCharacteristic(UUID_CHAR_ACTIVITY_DATA)
@@ -222,6 +226,32 @@ class MiBand (
 
         val resp = readCharChange(charFetch)
         debug { "resp = ${resp.contentToString()}" }
+        if (!resp.startsWith(FETCH_CHAR_RESP_START_TIME))
+            throw IOException("unexpected response: ${resp.contentToString()}")
+        val timeStart = resp.sliceArray(7..12).toDateTime()
+        debug { "fetch data from $timeStart" }
+        writeCharacteristic(charFetch, FETCH_CHAR_CMD_CONFIRM)
+
+        // Receive data
+        val receiving = launch {
+            var time = LocalDateTime.from(timeStart)
+            while (true) {
+                readCharChange(charActivity).asSequence().drop(1).chunked(4).forEach { pkg ->
+                    val step = pkg[2].toInt() and 0xff
+                    val heartRate = pkg[3].toInt()
+                    if (step != 0 || heartRate != -1) {
+                        debug { "$time step $step heart $heartRate bpm" }
+                    } else {
+                        debug { "$time no data"}
+                    }
+                    time = time.plusMinutes(1)
+                }
+            }
+        }
+        val end = readCharChange(charFetch)
+        receiving.cancelAndJoin()
+        debug { "end reading" }
+
     }
 
     suspend fun startRealtimeHeartRate() {
