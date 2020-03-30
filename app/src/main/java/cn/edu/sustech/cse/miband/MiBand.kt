@@ -209,6 +209,21 @@ class MiBand (
         authSelf()
     }
 
+    suspend fun disableHeartMonitor() {
+        setHeartMonitorConfig(false, 0)
+    }
+
+    suspend fun enableHeartMonitor(intervalMinute: Byte) {
+        setHeartMonitorConfig(true, intervalMinute)
+    }
+
+    private suspend fun setHeartMonitorConfig(enable: Boolean, intervalMinute: Byte) {
+        val charCtrl = serviceHeart.getCharacteristic(UUID_CHAR_HEART_RATE_CTRL)
+            ?: throw IOException("char heart rate control not found")
+        writeCharacteristic(charCtrl, byteArrayOf(0x15, 0x00, if (enable) 0x01 else 0x00))
+        writeCharacteristic(charCtrl, byteArrayOf(0x15, intervalMinute))
+    }
+
     suspend fun fetchData(since: LocalDateTime) = withContext(coroutineContext) {
         val charFetch = serviceBand1.getCharacteristic(UUID_CHAR_FETCH)
             ?: throw IOException("char fetch not found")
@@ -251,7 +266,6 @@ class MiBand (
         val end = readCharChange(charFetch)
         receiving.cancelAndJoin()
         debug { "end reading" }
-
     }
 
     suspend fun startRealtimeHeartRate() {
