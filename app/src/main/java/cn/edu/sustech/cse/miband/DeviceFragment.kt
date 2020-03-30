@@ -1,14 +1,18 @@
 package cn.edu.sustech.cse.miband
 
+import android.content.Intent.*
 import android.os.Bundle
 import androidx.fragment.app.Fragment
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import androidx.core.app.ShareCompat
+import androidx.core.content.FileProvider
 import androidx.fragment.app.viewModels
 import androidx.lifecycle.lifecycleScope
 import androidx.navigation.fragment.navArgs
 import cn.edu.sustech.cse.miband.databinding.FragmentDeviceBinding
+import cn.edu.sustech.cse.miband.db.RecordDao
 import kotlinx.android.synthetic.main.fragment_device.*
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -16,12 +20,14 @@ import kotlinx.coroutines.withContext
 import org.jetbrains.anko.AnkoLogger
 import org.jetbrains.anko.debug
 import org.threeten.bp.LocalDateTime
+import java.io.File
 import java.io.IOException
 
 
 class DeviceFragment : Fragment(), AnkoLogger {
     private val args: DeviceFragmentArgs by navArgs()
     private val viewModel: DeviceViewModel by viewModels()
+    private lateinit var recordDao: RecordDao
     private lateinit var miBand: MiBand
 
     override fun onCreateView(
@@ -39,6 +45,7 @@ class DeviceFragment : Fragment(), AnkoLogger {
             args.key.substring(i * 2, i * 2 + 2).toInt(16).toByte()
         }
         miBand = MiBand(requireContext(), args.device, key, viewLifecycleOwner)
+        recordDao = requireContext().database.recordDao()
 
         viewLifecycleOwner.lifecycleScope.launchWhenStarted {
             miBand.connect()
@@ -49,6 +56,8 @@ class DeviceFragment : Fragment(), AnkoLogger {
         heart_rate_button.setOnClickListener { realtimeHeartRate() }
         monitor_enable_button.setOnClickListener { enableBackgroundHeartRate() }
         monitor_disable_button.setOnClickListener { disableBackgroundHeartRate() }
+        delete_button.setOnClickListener { deleteAllRecords() }
+        export_button.setOnClickListener { exportAsCsv() }
     }
 
     private fun operateBand(block: suspend CoroutineScope.() -> Unit) {
@@ -63,19 +72,15 @@ class DeviceFragment : Fragment(), AnkoLogger {
     }
 
     private fun fetchData() = operateBand {
-        val dao = requireContext().database.recordDao()
-        val since = withContext(Dispatchers.IO) {
-            dao.loadLastTime()?.minusHours(3) ?: LocalDateTime.now().minusDays(1)
-        }
+        val since = recordDao.loadLastTime()?.minusHours(3)
+            ?: LocalDateTime.now().minusDays(1)
         debug { "fetch data since $since" }
         val records = miBand.fetchData(since)
         debug { "${records.size} records fetched" }
         if (records.isEmpty()) {
             showSnack("No new record")
         } else {
-            withContext(Dispatchers.IO) {
-                dao.insertAll(records)
-            }
+            recordDao.insertAll(records)
             showSnack("Records fetched: ${records.size}" )
         }
     }
@@ -95,5 +100,43 @@ class DeviceFragment : Fragment(), AnkoLogger {
         showSnack("Background heart rate monitor disabled" )
     }
 
+    private fun deleteAllRecords() = operateBand {
+        recordDao.deleteAll()
+        showSnack("All records removed")
+    }
+
+    private fun exportAsCsv() = operateBand {
+        val records = recordDao.selectAll()
+        if (records.isEmpty()) {
+            showSnack("No records found")
+            return@operateBand
+        }
+
+        val dir = File(requireContext().cacheDir, "exported")
+        dir.mkdirs()
+        val file = File(dir, "activities-${records.last().time}.csv")
+        file.deleteOnExit()
+        withContext(Dispatchers.IO) {
+            val writer = file.outputStream().bufferedWriter()
+            writer.write("time,step,heart_beat\r\n")
+            for (record in records)
+                record.apply {
+                    writer.write("$time,$step,$heartRate\r\n")
+                }
+            writer.flush()
+            writer.close()
+            file
+        }
+
+        val uri = FileProvider.getUriForFile(requireContext(), requireContext().packageName, file)
+        val intent = ShareCompat.IntentBuilder.from(requireActivity())
+            .setStream(uri)
+            .setType("text/csv")
+            .intent
+            .setAction(ACTION_SEND)
+            .setDataAndType(uri, "text/csv")
+            .addFlags(FLAG_GRANT_READ_URI_PERMISSION)
+        startActivity(intent)
+    }
 
 }
