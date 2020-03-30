@@ -11,11 +11,15 @@ import androidx.navigation.fragment.navArgs
 import cn.edu.sustech.cse.miband.databinding.FragmentDeviceBinding
 import kotlinx.android.synthetic.main.fragment_device.*
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import org.jetbrains.anko.AnkoLogger
+import org.jetbrains.anko.debug
 import org.threeten.bp.LocalDateTime
 import java.io.IOException
 
 
-class DeviceFragment : Fragment() {
+class DeviceFragment : Fragment(), AnkoLogger {
     private val args: DeviceFragmentArgs by navArgs()
     private val viewModel: DeviceViewModel by viewModels()
     private lateinit var miBand: MiBand
@@ -59,9 +63,21 @@ class DeviceFragment : Fragment() {
     }
 
     private fun fetchData() = operateBand {
-        val since = LocalDateTime.of(2020, 3, 30, 0, 0, 0)
-        miBand.fetchData(since)
-        showSnack("All records were fetched" )
+        val dao = requireContext().database.recordDao()
+        val since = withContext(Dispatchers.IO) {
+            dao.loadLastTime() ?: LocalDateTime.now().minusDays(1)
+        }
+        debug { "fetch data since $since" }
+        val records = miBand.fetchData(since)
+        debug { "${records.size} records fetched" }
+        if (records.isEmpty()) {
+            showSnack("No new record")
+        } else {
+            withContext(Dispatchers.IO) {
+                dao.insertAll(records)
+            }
+            showSnack("Records fetched: ${records.size}" )
+        }
     }
 
     private fun realtimeHeartRate() = operateBand {

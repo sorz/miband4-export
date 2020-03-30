@@ -10,6 +10,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.OnLifecycleEvent
+import cn.edu.sustech.cse.miband.db.Record
 import kotlinx.coroutines.*
 import org.jetbrains.anko.AnkoLogger
 import org.jetbrains.anko.debug
@@ -236,10 +237,11 @@ class MiBand (
         if (!resp.startsWith(FETCH_CHAR_RESP_START_TIME))
             throw IOException("unexpected response: ${resp.contentToString()}")
         val timeStart = resp.sliceArray(7..12).toDateTime()
-        debug { "fetch data from $timeStart" }
+        debug { "data since $timeStart" }
         writeCharacteristic(charFetch, FETCH_CHAR_CMD_CONFIRM)
 
         // Receive data
+        val records: MutableList<Record> = mutableListOf()
         val receiving = launch {
             var time = LocalDateTime.from(timeStart)
             while (true) {
@@ -248,6 +250,7 @@ class MiBand (
                     val heartRate = pkg[3].toInt()
                     if (step != 0 || heartRate != -1) {
                         debug { "$time step $step heart $heartRate bpm" }
+                        records.add(Record(time, step, heartRate))
                     } else {
                         debug { "$time no data"}
                     }
@@ -258,6 +261,7 @@ class MiBand (
         val end = readCharChange(charFetch)
         receiving.cancelAndJoin()
         debug { "end reading" }
+        records
     }
 
     suspend fun startRealtimeHeartRate() {
