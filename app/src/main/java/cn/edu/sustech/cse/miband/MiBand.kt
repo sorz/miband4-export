@@ -214,7 +214,7 @@ class MiBand (
         val charCtrl = serviceHeart.getCharacteristic(UUID_CHAR_HEART_RATE_CTRL)
             ?: throw IOException("char heart rate control not found")
         writeCharacteristic(charCtrl, byteArrayOf(0x15, 0x00, if (enable) 0x01 else 0x00))
-        writeCharacteristic(charCtrl, byteArrayOf(0x15, intervalMinute))
+        writeCharacteristic(charCtrl, byteArrayOf(0x14, intervalMinute))
     }
 
     suspend fun fetchData(since: LocalDateTime) = withContext(coroutineContext) {

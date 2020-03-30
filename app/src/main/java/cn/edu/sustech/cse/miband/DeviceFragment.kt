@@ -65,7 +65,7 @@ class DeviceFragment : Fragment(), AnkoLogger {
     private fun fetchData() = operateBand {
         val dao = requireContext().database.recordDao()
         val since = withContext(Dispatchers.IO) {
-            dao.loadLastTime() ?: LocalDateTime.now().minusDays(1)
+            dao.loadLastTime()?.minusHours(3) ?: LocalDateTime.now().minusDays(1)
         }
         debug { "fetch data since $since" }
         val records = miBand.fetchData(since)
