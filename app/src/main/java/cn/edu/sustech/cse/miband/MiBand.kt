@@ -209,15 +209,7 @@ class MiBand (
         authSelf()
     }
 
-    suspend fun disableHeartMonitor() {
-        setHeartMonitorConfig(false, 0)
-    }
-
-    suspend fun enableHeartMonitor(intervalMinute: Byte) {
-        setHeartMonitorConfig(true, intervalMinute)
-    }
-
-    private suspend fun setHeartMonitorConfig(enable: Boolean, intervalMinute: Byte) {
+    suspend fun setHeartMonitorConfig(enable: Boolean, intervalMinute: Byte) {
         val charCtrl = serviceHeart.getCharacteristic(UUID_CHAR_HEART_RATE_CTRL)
             ?: throw IOException("char heart rate control not found")
         writeCharacteristic(charCtrl, byteArrayOf(0x15, 0x00, if (enable) 0x01 else 0x00))

@@ -10,6 +10,7 @@ import androidx.lifecycle.lifecycleScope
 import androidx.navigation.fragment.navArgs
 import cn.edu.sustech.cse.miband.databinding.FragmentDeviceBinding
 import kotlinx.android.synthetic.main.fragment_device.*
+import kotlinx.coroutines.CoroutineScope
 import org.threeten.bp.LocalDateTime
 import java.io.IOException
 
@@ -42,22 +43,41 @@ class DeviceFragment : Fragment() {
 
         fetch_button.setOnClickListener { fetchData() }
         heart_rate_button.setOnClickListener { realtimeHeartRate() }
+        monitor_enable_button.setOnClickListener { enableBackgroundHeartRate() }
+        monitor_disable_button.setOnClickListener { disableBackgroundHeartRate() }
     }
 
-    private fun fetchData() = viewLifecycleOwner.lifecycleScope.launchWhenStarted {
-        viewModel.ready.value = false
-        try {
-            val since = LocalDateTime.of(2020, 3, 30, 0, 0, 0)
-            miBand.fetchData(since)
-            showSnack("All records were fetched" )
-        } catch (err: IOException) {
-            showSnack(err.localizedMessage ?: "I/O error")
-        }
-    }.invokeOnCompletion { viewModel.ready.value = true }
+    private fun operateBand(block: suspend CoroutineScope.() -> Unit) {
+        viewLifecycleOwner.lifecycleScope.launchWhenStarted {
+            viewModel.ready.value = false
+            try {
+                block.invoke(this)
+            } catch (err: IOException) {
+                showSnack(err.localizedMessage ?: "I/O error")
+            }
+        }.invokeOnCompletion { viewModel.ready.value = true }
+    }
 
-    private fun realtimeHeartRate() = viewLifecycleOwner.lifecycleScope.launchWhenResumed {
+    private fun fetchData() = operateBand {
+        val since = LocalDateTime.of(2020, 3, 30, 0, 0, 0)
+        miBand.fetchData(since)
+        showSnack("All records were fetched" )
+    }
+
+    private fun realtimeHeartRate() = operateBand {
         viewModel.ready.value = false
         miBand.startRealtimeHeartRate()
-    }.invokeOnCompletion { viewModel.ready.value = true }
+    }
+
+    private fun enableBackgroundHeartRate() = operateBand {
+        miBand.setHeartMonitorConfig(true, 1)
+        showSnack("Background heart rate monitor enabled" )
+    }
+
+    private fun disableBackgroundHeartRate() = operateBand {
+        miBand.setHeartMonitorConfig(false, 0)
+        showSnack("Background heart rate monitor disabled" )
+    }
+
 
 }
