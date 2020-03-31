@@ -62,7 +62,6 @@ class MiBand (
     private var descWriteCont: MutableMap<Pair<UUID, UUID>, Continuation<Unit>> = mutableMapOf()
     private var charChangeCont: MutableMap<UUID, Continuation<ByteArray>> = mutableMapOf()
     private var charChangeQueue: MutableMap<UUID, CircularArray<ByteArray>> = mutableMapOf()
-    private var realtimeHeartRateJob: Job? = null
 
 
     init {
@@ -272,12 +271,11 @@ class MiBand (
         records
     }
 
-    suspend fun startRealtimeHeartRate(): Channel<Int> = withContext(coroutineContext) {
+    suspend fun startRealtimeHeartRate(channel: Channel<Int>) = withContext(coroutineContext) {
         val charHeartRateCtrl = serviceHeart.getCharacteristic(UUID_CHAR_HEART_RATE_CTRL)
             ?: throw IOException("char heart rate control not found")
         val charHeartRateData = serviceHeart.getCharacteristic(UUID_CHAR_HEART_RATE_MEASURE)
             ?: throw IOException("char heart rate measure not found")
-        realtimeHeartRateJob?.cancel()
 
         // Stop monitor continues & manual
         writeCharacteristic(charHeartRateCtrl, HEART_CHAR_CMD_STOP_CONTINUES)
@@ -295,37 +293,33 @@ class MiBand (
             }
         }
         // Receive data
-        val channel = Channel<Int>()
-        realtimeHeartRateJob = launch {
-            try {
-                while (true) {
-                    val resp = readCharChange(charHeartRateData)
-                    if (resp[0] != 0.toByte()) {
-                        channel.close(IOException("Unexpected data: ${resp.contentToString()}"))
-                        break
-                    }
-                    val bpm = resp[1].toInt() and 0xff
-                    debug { "$bpm bpm" }
-                    if (!channel.offer(bpm))
-                        info("fail to offer bpm data")
+        try {
+            while (true) {
+                val resp = readCharChange(charHeartRateData)
+                if (resp[0] != 0.toByte()) {
+                    channel.close(IOException("Unexpected data: ${resp.contentToString()}"))
+                    break
                 }
-            } catch (err: CancellationException) {
-                // Gracefully shutdown
-                debug("realtimeHeartRateJob cancelled")
-                keepAlive.cancel()
-                channel.cancel(err)
-                writeCharacteristic(charHeartRateCtrl, HEART_CHAR_CMD_STOP_CONTINUES)
-                enableNotification(charHeartRateData, false)
-            } catch (err: IOException) {
-                warn { "error on read heat beat: $err" }
-                channel.close(err)
-            } finally {
-                debug("realtimeHeartRateJob exited")
-                keepAlive.cancel()
-                channel.close()
+                val bpm = resp[1].toInt() and 0xff
+                debug { "$bpm bpm" }
+                if (!channel.offer(bpm))
+                    info("fail to offer bpm data")
             }
+        } catch (err: CancellationException) {
+            // Gracefully shutdown
+            debug("realtimeHeartRateJob cancelled")
+            keepAlive.cancel()
+            channel.cancel(err)
+            writeCharacteristic(charHeartRateCtrl, HEART_CHAR_CMD_STOP_CONTINUES)
+            enableNotification(charHeartRateData, false)
+        } catch (err: IOException) {
+            warn { "error on read heat beat: $err" }
+            channel.close(err)
+        } finally {
+            debug("realtimeHeartRateJob exited")
+            keepAlive.cancel()
+            channel.close()
         }
-        channel
     }
 
     private suspend fun authSelf() {

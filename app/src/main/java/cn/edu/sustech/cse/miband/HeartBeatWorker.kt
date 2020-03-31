@@ -1,21 +1,16 @@
 package cn.edu.sustech.cse.miband
 
-import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
-import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothManager
 import android.bluetooth.BluetoothProfile
 import android.content.Context
-import android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
-import android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.work.*
 import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.channels.receiveOrNull
 import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import org.jetbrains.anko.AnkoLogger
 import org.jetbrains.anko.debug
 import org.jetbrains.anko.warn
@@ -44,10 +39,14 @@ class HeartBeatWorker(context: Context, parameters: WorkerParameters) :
 
         val miBand = findDevice() ?: return@coroutineScope Result.failure()
         miBand.connect()
-        val bpmChannel = miBand.startRealtimeHeartRate()
+        val bpmChannel = Channel<Int>()
+        val job = launch {
+            miBand.startRealtimeHeartRate(bpmChannel)
+        }
         try {
             saveBpmData(bpmChannel)
         } finally {
+            job.cancel()
             bpmChannel.close()
         }
         Result.success()
