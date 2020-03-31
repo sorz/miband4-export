@@ -52,6 +52,7 @@
                         android:layout_height="wrap_content"
                         android:layout_marginTop="8dp"
                         android:text="Clean"
+                        android:enabled="@{model.databaseReady}"
                         app:icon="@drawable/ic_baseline_delete_outline_24"
                         app:layout_constraintStart_toStartOf="@+id/textView3"
                         app:layout_constraintTop_toBottomOf="@+id/textView7" />
@@ -84,7 +85,7 @@
                         android:layout_height="wrap_content"
                         android:layout_marginTop="8dp"
                         android:layout_marginEnd="8dp"
-                        android:enabled="@{model.ready}"
+                        android:enabled="@{model.bandReady}"
                         android:text="Disable"
                         app:layout_constraintEnd_toStartOf="@+id/monitor_enable_button"
                         app:layout_constraintTop_toBottomOf="@+id/textView4" />
@@ -95,7 +96,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_marginEnd="16dp"
-                        android:enabled="@{model.ready}"
+                        android:enabled="@{model.bandReady}"
                         android:text="Enable"
                         app:layout_constraintEnd_toEndOf="parent"
                         app:layout_constraintTop_toTopOf="@+id/monitor_disable_button" />
@@ -105,7 +106,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_marginStart="24dp"
-                        android:text="Activity records"
+                        android:text="Background records"
                         android:textAppearance="@style/TextAppearance.AppCompat.Large"
                         app:layout_constraintStart_toStartOf="parent"
                         app:layout_constraintTop_toTopOf="parent" />
@@ -117,7 +118,7 @@
                         android:layout_height="wrap_content"
                         android:layout_marginTop="8dp"
                         android:layout_marginEnd="16dp"
-                        android:enabled="@{model.ready}"
+                        android:enabled="@{model.bandReady}"
                         android:text="Fetch data"
                         app:icon="@drawable/ic_baseline_get_app_24"
                         app:layout_constraintEnd_toEndOf="parent"
@@ -129,7 +130,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="16dp"
-                        android:text="Background heart rate monitor (once per minute)"
+                        android:text="Heart beat rate monitor (once per minute)"
                         android:textAppearance="@style/TextAppearance.AppCompat.Body1"
                         app:layout_constraintStart_toStartOf="@+id/textView3"
                         app:layout_constraintTop_toBottomOf="@+id/delete_activities_button" />
@@ -142,6 +143,7 @@
                         android:layout_marginTop="8dp"
                         android:layout_marginEnd="16dp"
                         android:text="Export"
+                        android:enabled="@{model.databaseReady}"
                         app:iconGravity="end"
                         app:icon="@drawable/ic_baseline_reply_24"
                         app:layout_constraintEnd_toEndOf="parent"
@@ -193,7 +195,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_marginEnd="16dp"
-                        android:enabled="@{model.ready &amp;&amp; !model.heartBeatWorkerStarted}"
+                        android:enabled="@{model.bandReady &amp;&amp; !model.heartBeatWorkerStarted}"
                         android:text="Start monitor"
                         app:layout_constraintEnd_toEndOf="parent"
                         app:layout_constraintTop_toTopOf="@+id/heart_rate_stop_button" />
@@ -216,6 +218,7 @@
                         android:layout_height="wrap_content"
                         android:layout_marginTop="8dp"
                         android:text="Clean"
+                        android:enabled="@{model.databaseReady}"
                         app:icon="@drawable/ic_baseline_delete_outline_24"
                         app:layout_constraintStart_toStartOf="@+id/textView8"
                         app:layout_constraintTop_toBottomOf="@+id/textView8" />
@@ -228,6 +231,7 @@
                         android:layout_height="wrap_content"
                         android:layout_marginEnd="16dp"
                         android:text="Export"
+                        android:enabled="@{model.databaseReady}"
                         app:icon="@drawable/ic_baseline_reply_24"
                         app:iconGravity="end"
                         app:layout_constraintBottom_toBottomOf="parent"

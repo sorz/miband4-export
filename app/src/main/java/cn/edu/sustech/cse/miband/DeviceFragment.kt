@@ -9,6 +9,7 @@ import android.view.ViewGroup
 import androidx.core.app.ShareCompat
 import androidx.core.content.FileProvider
 import androidx.fragment.app.viewModels
+import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.Observer
 import androidx.lifecycle.lifecycleScope
 import androidx.navigation.fragment.navArgs
@@ -53,7 +54,7 @@ class DeviceFragment : Fragment(), AnkoLogger {
 
         viewLifecycleOwner.lifecycleScope.launchWhenStarted {
             miBand.connect()
-            viewModel.ready.value = true
+            viewModel.bandReady.value = true
         }
 
         fetch_button.setOnClickListener { fetchData() }
@@ -73,15 +74,16 @@ class DeviceFragment : Fragment(), AnkoLogger {
             })
     }
 
-    private fun operateBand(block: suspend CoroutineScope.() -> Unit) {
+    private fun operateBand(ready: MutableLiveData<Boolean> = viewModel.bandReady,
+                            block: suspend CoroutineScope.() -> Unit) {
         viewLifecycleOwner.lifecycleScope.launchWhenStarted {
-            viewModel.ready.value = false
+            ready.value = false
             try {
                 block.invoke(this)
             } catch (err: IOException) {
                 showSnack(err.localizedMessage ?: "I/O error")
             }
-        }.invokeOnCompletion { viewModel.ready.value = true }
+        }.invokeOnCompletion { ready.value = true }
     }
 
     private fun fetchData() = operateBand {
@@ -128,17 +130,17 @@ class DeviceFragment : Fragment(), AnkoLogger {
         showSnack("Background heart rate monitor disabled" )
     }
 
-    private fun deleteAllRecords() = operateBand {
+    private fun deleteAllRecords() = operateBand(viewModel.databaseReady) {
         recordDao.deleteAll()
         showSnack("All records removed")
     }
 
-    private fun deleteAllHeartRate() = operateBand {
+    private fun deleteAllHeartRate() = operateBand(viewModel.databaseReady) {
         heartBeatDao.deleteAll()
         showSnack("All records removed")
     }
 
-    private fun exportActivitiesAsCsv() = operateBand {
+    private fun exportActivitiesAsCsv() = operateBand(viewModel.databaseReady) {
         val records = recordDao.selectAll()
         if (records.isEmpty()) {
             showSnack("No records found")
@@ -159,7 +161,7 @@ class DeviceFragment : Fragment(), AnkoLogger {
         exportCsvFile(file)
     }
 
-    private fun exportHeartAsCsv() = operateBand {
+    private fun exportHeartAsCsv() = operateBand(viewModel.databaseReady) {
         val records = heartBeatDao.selectAll()
         if (records.isEmpty()) {
             showSnack("no records found")
