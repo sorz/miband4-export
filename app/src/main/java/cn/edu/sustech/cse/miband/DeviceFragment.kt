@@ -9,6 +9,7 @@ import android.view.ViewGroup
 import androidx.core.app.ShareCompat
 import androidx.core.content.FileProvider
 import androidx.fragment.app.viewModels
+import androidx.lifecycle.Observer
 import androidx.lifecycle.lifecycleScope
 import androidx.navigation.fragment.navArgs
 import androidx.work.*
@@ -32,6 +33,7 @@ class DeviceFragment : Fragment(), AnkoLogger {
     private val viewModel: DeviceViewModel by viewModels()
     private lateinit var recordDao: RecordDao
     private lateinit var miBand: MiBand
+    private lateinit var workManager: WorkManager
 
     override fun onCreateView(
         inflater: LayoutInflater, container: ViewGroup?,
@@ -46,6 +48,7 @@ class DeviceFragment : Fragment(), AnkoLogger {
         super.onViewCreated(view, savedInstanceState)
         miBand = MiBand(requireContext(), args.device, args.key, viewLifecycleOwner)
         recordDao = requireContext().database.recordDao()
+        workManager = WorkManager.getInstance(requireContext())
 
         viewLifecycleOwner.lifecycleScope.launchWhenStarted {
             miBand.connect()
@@ -58,6 +61,12 @@ class DeviceFragment : Fragment(), AnkoLogger {
         monitor_disable_button.setOnClickListener { disableBackgroundHeartRate() }
         delete_button.setOnClickListener { deleteAllRecords() }
         export_button.setOnClickListener { exportAsCsv() }
+
+        workManager.getWorkInfosForUniqueWorkLiveData(HEART_BEAT_WORK_NAME)
+            .observe(viewLifecycleOwner, Observer { works ->
+                viewModel.heartBeatWorkerStarted.value =
+                    !(works.isEmpty() || works.first().state.isFinished)
+            })
     }
 
     private fun operateBand(block: suspend CoroutineScope.() -> Unit) {
@@ -98,8 +107,7 @@ class DeviceFragment : Fragment(), AnkoLogger {
             .setConstraints(constraints)
             .setInputData(input)
             .build()
-        WorkManager.getInstance(requireContext())
-            .enqueueUniqueWork(HEART_BEAT_WORK_NAME, ExistingWorkPolicy.KEEP, listOf(work))
+        workManager.enqueueUniqueWork(HEART_BEAT_WORK_NAME, ExistingWorkPolicy.KEEP, listOf(work))
     }
 
     private fun enableBackgroundHeartRate() = operateBand {

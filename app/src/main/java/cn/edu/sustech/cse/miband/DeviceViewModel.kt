@@ -5,5 +5,6 @@ import androidx.lifecycle.ViewModel
 
 class DeviceViewModel : ViewModel() {
     val ready = MutableLiveData(false)
+    val heartBeatWorkerStarted = MutableLiveData(false)
 
 }
