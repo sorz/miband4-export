@@ -15,6 +15,7 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
 import org.jetbrains.anko.AnkoLogger
 import org.jetbrains.anko.debug
+import org.jetbrains.anko.info
 import org.jetbrains.anko.warn
 import org.threeten.bp.LocalDateTime
 import java.io.IOException
@@ -36,7 +37,9 @@ private val FETCH_CHAR_CMD_CONFIRM = byteArrayOf(0x02)
 private val FETCH_CHAR_RESP_START_TIME = byteArrayOf(0x10, 0x01, 0x01)
 private val FETCH_CHAR_RESP_FINISHED = byteArrayOf(0x10, 0x02, 0x01)
 private val FETCH_CHAR_RESP_NO_DATA = byteArrayOf(0x10, 0x02, 0x04)
-
+private val HEART_CHAR_CMD_STOP_CONTINUES = byteArrayOf(0x15, 0x01, 0x00)
+private val HEART_CHAR_CMD_STOP_MANUAL = byteArrayOf(0x15, 0x02, 0x00)
+private val HEART_CHAR_CMD_START_CONTINUES = byteArrayOf(0x15, 0x01, 0x01)
 
 class MiBand (
     context: Context,
@@ -59,6 +62,7 @@ class MiBand (
     private var descWriteCont: MutableMap<Pair<UUID, UUID>, Continuation<Unit>> = mutableMapOf()
     private var charChangeCont: MutableMap<UUID, Continuation<ByteArray>> = mutableMapOf()
     private var charChangeQueue: MutableMap<UUID, CircularArray<ByteArray>> = mutableMapOf()
+    private var realtimeHeartRateJob: Job? = null
 
 
     init {
@@ -268,19 +272,20 @@ class MiBand (
         records
     }
 
-    suspend fun startRealtimeHeartRate() = withContext(coroutineContext) {
+    suspend fun startRealtimeHeartRate(): Channel<Int> = withContext(coroutineContext) {
         val charHeartRateCtrl = serviceHeart.getCharacteristic(UUID_CHAR_HEART_RATE_CTRL)
             ?: throw IOException("char heart rate control not found")
         val charHeartRateData = serviceHeart.getCharacteristic(UUID_CHAR_HEART_RATE_MEASURE)
             ?: throw IOException("char heart rate measure not found")
+        realtimeHeartRateJob?.cancel()
 
         // Stop monitor continues & manual
-        writeCharacteristic(charHeartRateCtrl, byteArrayOf(0x15, 0x01, 0x00))
-        writeCharacteristic(charHeartRateCtrl, byteArrayOf(0x15, 0x02, 0x00))
+        writeCharacteristic(charHeartRateCtrl, HEART_CHAR_CMD_STOP_CONTINUES)
+        writeCharacteristic(charHeartRateCtrl, HEART_CHAR_CMD_STOP_MANUAL)
 
         // Start monitor continues
         enableNotification(charHeartRateData, true)
-        writeCharacteristic(charHeartRateCtrl, byteArrayOf(0x15, 0x01, 0x01))
+        writeCharacteristic(charHeartRateCtrl, HEART_CHAR_CMD_START_CONTINUES)
 
         // Send ping every 12 seconds
         val keepAlive = launch {
@@ -291,23 +296,34 @@ class MiBand (
         }
         // Receive data
         val channel = Channel<Int>()
-        try {
-            while (true) {
-                val resp = readCharChange(charHeartRateData)
-                if (resp[0] != 0.toByte()) {
-                    channel.close(IOException("Unexpected data: ${resp.contentToString()}"))
-                    break
+        realtimeHeartRateJob = launch {
+            try {
+                while (true) {
+                    val resp = readCharChange(charHeartRateData)
+                    if (resp[0] != 0.toByte()) {
+                        channel.close(IOException("Unexpected data: ${resp.contentToString()}"))
+                        break
+                    }
+                    val bpm = resp[1].toInt() and 0xff
+                    debug { "$bpm bpm" }
+                    if (!channel.offer(bpm))
+                        info("fail to offer bpm data")
                 }
-                val bpm = resp[1].toInt() and 0xff
-                debug { "$bpm bpm" }
-                channel.offer(bpm)
+            } catch (err: CancellationException) {
+                // Gracefully shutdown
+                debug("realtimeHeartRateJob cancelled")
+                keepAlive.cancel()
+                channel.cancel(err)
+                writeCharacteristic(charHeartRateCtrl, HEART_CHAR_CMD_STOP_CONTINUES)
+                enableNotification(charHeartRateData, false)
+            } catch (err: IOException) {
+                warn { "error on read heat beat: $err" }
+                channel.close(err)
+            } finally {
+                debug("realtimeHeartRateJob exited")
+                keepAlive.cancel()
+                channel.close()
             }
-        } catch (err: IOException) {
-            warn { "error on read heat beat: $err" }
-            channel.close(err)
-        } finally {
-            keepAlive.cancel()
-            channel.close()
         }
         channel
     }
