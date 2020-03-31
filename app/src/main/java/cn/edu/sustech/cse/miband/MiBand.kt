@@ -12,6 +12,7 @@ import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.OnLifecycleEvent
 import cn.edu.sustech.cse.miband.db.Record
 import kotlinx.coroutines.*
+import kotlinx.coroutines.channels.Channel
 import org.jetbrains.anko.AnkoLogger
 import org.jetbrains.anko.debug
 import org.jetbrains.anko.warn
@@ -40,8 +41,8 @@ private val FETCH_CHAR_RESP_NO_DATA = byteArrayOf(0x10, 0x02, 0x04)
 class MiBand (
     context: Context,
     private val device: BluetoothDevice,
-    private val key: ByteArray,
-    lifecycleOwner: LifecycleOwner
+    key: String,
+    lifecycleOwner: LifecycleOwner?
 ) : LifecycleObserver, AnkoLogger {
     private lateinit var bleGatt: BluetoothGatt
     private lateinit var serviceBand1: BluetoothGattService
@@ -49,6 +50,9 @@ class MiBand (
     private lateinit var serviceHeart: BluetoothGattService
 
     private val context = context.applicationContext
+    private val key = ByteArray(key.length / 2) { i ->
+        key.substring(i * 2, i * 2 + 2).toInt(16).toByte()
+    }
 
     private var connectContinuation: Continuation<Unit>? = null
     private var charWriteCont: MutableMap<UUID, Continuation<Unit>> = mutableMapOf()
@@ -58,7 +62,7 @@ class MiBand (
 
 
     init {
-        lifecycleOwner.lifecycle.addObserver(this)
+        lifecycleOwner?.lifecycle?.addObserver(this)
     }
 
     private val gattCallback = object : BluetoothGattCallback() {
@@ -264,7 +268,7 @@ class MiBand (
         records
     }
 
-    suspend fun startRealtimeHeartRate() {
+    suspend fun startRealtimeHeartRate() = withContext(coroutineContext) {
         val charHeartRateCtrl = serviceHeart.getCharacteristic(UUID_CHAR_HEART_RATE_CTRL)
             ?: throw IOException("char heart rate control not found")
         val charHeartRateData = serviceHeart.getCharacteristic(UUID_CHAR_HEART_RATE_MEASURE)
@@ -278,13 +282,34 @@ class MiBand (
         enableNotification(charHeartRateData, true)
         writeCharacteristic(charHeartRateCtrl, byteArrayOf(0x15, 0x01, 0x01))
 
-        // TODO: send ping every 12 seconds
-        while (true) {
-            delay(12_000)
-            writeCharacteristic(charHeartRateCtrl, byteArrayOf(0x16))
+        // Send ping every 12 seconds
+        val keepAlive = launch {
+            while (true) {
+                delay(12_000)
+                writeCharacteristic(charHeartRateCtrl, byteArrayOf(0x16))
+            }
         }
-
-        //readCharChange(charHeartRateData)
+        // Receive data
+        val channel = Channel<Int>()
+        try {
+            while (true) {
+                val resp = readCharChange(charHeartRateData)
+                if (resp[0] != 0.toByte()) {
+                    channel.close(IOException("Unexpected data: ${resp.contentToString()}"))
+                    break
+                }
+                val bpm = resp[1].toInt() and 0xff
+                debug { "$bpm bpm" }
+                channel.offer(bpm)
+            }
+        } catch (err: IOException) {
+            warn { "error on read heat beat: $err" }
+            channel.close(err)
+        } finally {
+            keepAlive.cancel()
+            channel.close()
+        }
+        channel
     }
 
     private suspend fun authSelf() {

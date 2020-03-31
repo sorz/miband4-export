@@ -11,6 +11,7 @@ import androidx.core.content.FileProvider
 import androidx.fragment.app.viewModels
 import androidx.lifecycle.lifecycleScope
 import androidx.navigation.fragment.navArgs
+import androidx.work.*
 import cn.edu.sustech.cse.miband.databinding.FragmentDeviceBinding
 import cn.edu.sustech.cse.miband.db.RecordDao
 import kotlinx.android.synthetic.main.fragment_device.*
@@ -23,6 +24,8 @@ import org.threeten.bp.LocalDateTime
 import java.io.File
 import java.io.IOException
 
+
+private const val HEART_BEAT_WORK_NAME = "work-heat-beat"
 
 class DeviceFragment : Fragment(), AnkoLogger {
     private val args: DeviceFragmentArgs by navArgs()
@@ -41,10 +44,7 @@ class DeviceFragment : Fragment(), AnkoLogger {
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
-        val key = ByteArray(args.key.length / 2) { i ->
-            args.key.substring(i * 2, i * 2 + 2).toInt(16).toByte()
-        }
-        miBand = MiBand(requireContext(), args.device, key, viewLifecycleOwner)
+        miBand = MiBand(requireContext(), args.device, args.key, viewLifecycleOwner)
         recordDao = requireContext().database.recordDao()
 
         viewLifecycleOwner.lifecycleScope.launchWhenStarted {
@@ -85,9 +85,21 @@ class DeviceFragment : Fragment(), AnkoLogger {
         }
     }
 
-    private fun realtimeHeartRate() = operateBand {
-        viewModel.ready.value = false
-        miBand.startRealtimeHeartRate()
+    private fun realtimeHeartRate() {
+        val constraints = Constraints.Builder()
+            .setRequiresStorageNotLow(true)
+            .setRequiresBatteryNotLow(true)
+            .build()
+        val input = workDataOf(
+            "device-address" to args.device.address,
+            "device-key" to args.key
+        )
+        val work = OneTimeWorkRequestBuilder<HeartBeatWorker>()
+            .setConstraints(constraints)
+            .setInputData(input)
+            .build()
+        WorkManager.getInstance(requireContext())
+            .enqueueUniqueWork(HEART_BEAT_WORK_NAME, ExistingWorkPolicy.KEEP, listOf(work))
     }
 
     private fun enableBackgroundHeartRate() = operateBand {
