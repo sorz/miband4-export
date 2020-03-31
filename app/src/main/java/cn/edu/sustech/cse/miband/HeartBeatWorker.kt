@@ -48,6 +48,7 @@ class HeartBeatWorker(context: Context, parameters: WorkerParameters) :
         } finally {
             job.cancel()
             bpmChannel.close()
+            miBand.disconnect()
         }
         Result.success()
     }

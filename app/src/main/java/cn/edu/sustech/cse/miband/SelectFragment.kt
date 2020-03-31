@@ -158,6 +158,7 @@ class SelectFragment : Fragment(), AnkoLogger {
             }
             val settings = ScanSettings.Builder().build()
             device = bleScanner.startScan(filters, settings).receive()
+            bleScanner.stopScan()
         }
         debug { "${device.name} (${device.address}) found" }
 

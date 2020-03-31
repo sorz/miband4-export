@@ -361,8 +361,10 @@ class MiBand (
 
     @OnLifecycleEvent(Lifecycle.Event.ON_DESTROY)
     fun disconnect() {
+        debug("disconnecting")
+        connectContinuation?.resumeWithException(CancellationException("disconnect"))
         if (::bleGatt.isInitialized)
-            bleGatt.disconnect()
+            bleGatt.close()
     }
 }
 
