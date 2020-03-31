@@ -13,6 +13,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.DocumentsContract.EXTRA_INITIAL_URI
+import android.text.Html
 import androidx.fragment.app.Fragment
 import android.view.LayoutInflater
 import android.view.View
@@ -49,6 +50,17 @@ class SelectFragment : Fragment(), AnkoLogger {
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
+        prerequisites_text.text = Html.fromHtml(
+            "<h2>Prerequisites</h2><br>" +
+                    "1) Un-pair your band and uninstall existing official Mi Fit app " +
+                    "if you have it installed.<br><br>" +
+                    "2) Download and install modified Mi Fit app from " +
+                    "https://www.freemyband.com<br><br>" +
+                    "3) Pair the band with the modified Mi Fit. Keys will write out to " +
+                    "<i>/sdcard/freemyband</i> folder once paired.<br><br>" +
+                    "4) Select the folder <i>/sdcard/freemyband</i> below:",
+            Html.FROM_HTML_MODE_COMPACT
+        )
         select_button.setOnClickListener {
             Intent(ACTION_OPEN_DOCUMENT_TREE).apply {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
