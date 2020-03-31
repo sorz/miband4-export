@@ -8,12 +8,14 @@ import android.content.Context
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.work.*
+import cn.edu.sustech.cse.miband.db.HeartBeat
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import org.jetbrains.anko.AnkoLogger
 import org.jetbrains.anko.debug
 import org.jetbrains.anko.warn
+import org.threeten.bp.LocalDateTime
 
 private const val CHANNEL_ID = "channel-heart-beat"
 private const val NOTIFICATION_ID = 1
@@ -40,9 +42,7 @@ class HeartBeatWorker(context: Context, parameters: WorkerParameters) :
         val miBand = findDevice() ?: return@coroutineScope Result.failure()
         miBand.connect()
         val bpmChannel = Channel<Int>()
-        val job = launch {
-            miBand.startRealtimeHeartRate(bpmChannel)
-        }
+        val job = launch { miBand.startRealtimeHeartRate(bpmChannel) }
         try {
             saveBpmData(bpmChannel)
         } finally {
@@ -53,10 +53,12 @@ class HeartBeatWorker(context: Context, parameters: WorkerParameters) :
     }
 
     private suspend fun saveBpmData(channel: Channel<Int>) {
+        val dao = applicationContext.database.heartBeatDao()
         while (!isStopped) {
             val bpm = channel.receive()
             debug { "$bpm bpm" }
             setForeground(createForegroundInfo(bpm))
+            dao.insert(HeartBeat(LocalDateTime.now(), bpm))
         }
     }
 
