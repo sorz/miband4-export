@@ -19,6 +19,17 @@
 
 
         <Button
+            android:id="@+id/heart_rate_stop_button"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:layout_marginEnd="8dp"
+            android:enabled="@{model.heartBeatWorkerStarted}"
+            android:text="Stop"
+            app:layout_constraintEnd_toStartOf="@+id/heart_rate_button"
+            app:layout_constraintTop_toBottomOf="@+id/textView6" />
+
+        <Button
             android:id="@+id/delete_button"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
@@ -118,12 +129,11 @@
             android:id="@+id/heart_rate_button"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
             android:layout_marginEnd="16dp"
             android:enabled="@{model.ready &amp;&amp; !model.heartBeatWorkerStarted}"
             android:text="Start monitor"
             app:layout_constraintEnd_toEndOf="parent"
-            app:layout_constraintTop_toBottomOf="@+id/textView6" />
+            app:layout_constraintTop_toTopOf="@+id/heart_rate_stop_button" />
 
         <TextView
             android:id="@+id/textView2"

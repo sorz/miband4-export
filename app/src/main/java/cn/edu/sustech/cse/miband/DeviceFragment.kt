@@ -57,6 +57,7 @@ class DeviceFragment : Fragment(), AnkoLogger {
 
         fetch_button.setOnClickListener { fetchData() }
         heart_rate_button.setOnClickListener { realtimeHeartRate() }
+        heart_rate_stop_button.setOnClickListener { stopRealtimeHeartRate() }
         monitor_enable_button.setOnClickListener { enableBackgroundHeartRate() }
         monitor_disable_button.setOnClickListener { disableBackgroundHeartRate() }
         delete_button.setOnClickListener { deleteAllRecords() }
@@ -108,6 +109,10 @@ class DeviceFragment : Fragment(), AnkoLogger {
             .setInputData(input)
             .build()
         workManager.enqueueUniqueWork(HEART_BEAT_WORK_NAME, ExistingWorkPolicy.KEEP, listOf(work))
+    }
+
+    private fun stopRealtimeHeartRate() {
+        workManager.cancelUniqueWork(HEART_BEAT_WORK_NAME)
     }
 
     private fun enableBackgroundHeartRate() = operateBand {
