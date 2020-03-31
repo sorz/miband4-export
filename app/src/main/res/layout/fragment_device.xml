@@ -23,7 +23,9 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
-            android:text="Delete all"
+            android:text="Clean"
+            app:icon="@drawable/ic_baseline_delete_outline_24"
+            style="@style/Widget.MaterialComponents.Button.TextButton"
             app:layout_constraintStart_toStartOf="@+id/textView8"
             app:layout_constraintTop_toBottomOf="@+id/textView8" />
 
@@ -42,7 +44,9 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginEnd="16dp"
-            android:text="Export as CSV"
+            android:text="Export"
+            app:icon="@drawable/ic_baseline_reply_24"
+            style="?attr/materialButtonOutlinedStyle"
             app:layout_constraintEnd_toEndOf="parent"
             app:layout_constraintTop_toTopOf="@+id/delete_heart_button" />
 
@@ -54,6 +58,7 @@
             android:layout_marginEnd="8dp"
             android:enabled="@{model.heartBeatWorkerStarted}"
             android:text="Stop"
+            style="@style/Widget.MaterialComponents.Button.TextButton"
             app:layout_constraintEnd_toStartOf="@+id/heart_rate_button"
             app:layout_constraintTop_toBottomOf="@+id/textView6" />
 
@@ -62,7 +67,9 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
-            android:text="Delete all"
+            android:text="Clean"
+            app:icon="@drawable/ic_baseline_delete_outline_24"
+            style="@style/Widget.MaterialComponents.Button.TextButton"
             app:layout_constraintStart_toStartOf="@+id/textView3"
             app:layout_constraintTop_toBottomOf="@+id/textView7" />
 
@@ -102,22 +109,23 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
-            android:layout_marginEnd="16dp"
+            android:layout_marginEnd="8dp"
             android:enabled="@{model.ready}"
             android:text="Disable"
-            app:layout_constraintEnd_toEndOf="parent"
+            style="@style/Widget.MaterialComponents.Button.TextButton"
+            app:layout_constraintEnd_toStartOf="@+id/monitor_enable_button"
             app:layout_constraintTop_toBottomOf="@+id/textView4" />
 
         <Button
             android:id="@+id/monitor_enable_button"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:layout_marginEnd="8dp"
+            android:layout_marginEnd="16dp"
             android:enabled="@{model.ready}"
             android:text="Enable"
-            app:layout_constraintEnd_toStartOf="@+id/monitor_disable_button"
-            app:layout_constraintTop_toBottomOf="@+id/textView4" />
+            style="?attr/materialButtonOutlinedStyle"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintTop_toTopOf="@+id/monitor_disable_button" />
 
         <TextView
             android:id="@+id/textView3"
@@ -149,6 +157,8 @@
             android:layout_marginEnd="16dp"
             android:enabled="@{model.ready}"
             android:text="Fetch data"
+            app:icon="@drawable/ic_baseline_get_app_24"
+            style="?attr/materialButtonOutlinedStyle"
             app:layout_constraintEnd_toEndOf="parent"
             app:layout_constraintTop_toBottomOf="@+id/textView5" />
 
@@ -159,6 +169,7 @@
             android:layout_marginEnd="16dp"
             android:enabled="@{model.ready &amp;&amp; !model.heartBeatWorkerStarted}"
             android:text="Start monitor"
+            style="?attr/materialButtonOutlinedStyle"
             app:layout_constraintEnd_toEndOf="parent"
             app:layout_constraintTop_toTopOf="@+id/heart_rate_stop_button" />
 
@@ -178,7 +189,9 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
             android:layout_marginEnd="16dp"
-            android:text="Export as CSV"
+            android:text="Export"
+            app:icon="@drawable/ic_baseline_reply_24"
+            style="?attr/materialButtonOutlinedStyle"
             app:layout_constraintEnd_toEndOf="parent"
             app:layout_constraintTop_toBottomOf="@+id/textView7" />
     </androidx.constraintlayout.widget.ConstraintLayout>
