@@ -77,6 +77,7 @@ class SelectFragment : Fragment(), AnkoLogger {
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        bleScanner.onActivityResult(requestCode, resultCode)
         when (requestCode) {
             REQUEST_SELECT_FILE -> {
                 if (resultCode != Activity.RESULT_OK || data == null) return
@@ -86,6 +87,15 @@ class SelectFragment : Fragment(), AnkoLogger {
             }
             else -> super.onActivityResult(requestCode, resultCode, data)
         }
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        bleScanner.onRequestPermissionsResult(requestCode, grantResults)
     }
 
     private suspend fun readDeviceKeys(uri: Uri): Map<String, String> {
