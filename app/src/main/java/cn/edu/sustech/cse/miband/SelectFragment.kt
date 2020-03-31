@@ -19,8 +19,10 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import androidx.documentfile.provider.DocumentFile
+import androidx.fragment.app.viewModels
 import androidx.lifecycle.lifecycleScope
 import androidx.navigation.fragment.findNavController
+import cn.edu.sustech.cse.miband.databinding.FragmentSelectBinding
 import kotlinx.android.synthetic.main.fragment_select.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -34,6 +36,7 @@ private const val REQUEST_SELECT_FILE = 1
 private const val PREF_FREE_MY_BAND_URI = "free-my-band-uri"
 
 class SelectFragment : Fragment(), AnkoLogger {
+    private val viewModel: SelectViewModel by viewModels()
     private val bleScanner by lazy { BLEScanner(requireContext(), this) }
     private val bluetoothManager by lazy {
         requireContext().getSystemService(BLUETOOTH_SERVICE) as BluetoothManager
@@ -43,13 +46,15 @@ class SelectFragment : Fragment(), AnkoLogger {
     override fun onCreateView(
         inflater: LayoutInflater, container: ViewGroup?,
         savedInstanceState: Bundle?
-    ): View? {
-        // Inflate the layout for this fragment
-        return inflater.inflate(R.layout.fragment_select, container, false)
-    }
+    ): View? = FragmentSelectBinding.inflate(inflater, container, false).apply {
+        lifecycleOwner = this@SelectFragment
+        model = viewModel
+    }.root
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
+        viewModel.folderSelected.value =
+            preferences.getString(PREF_FREE_MY_BAND_URI, null) != null
         prerequisites_text.text = Html.fromHtml(
             "<h2>Prerequisites</h2><br>" +
                     "1) Un-pair your band and uninstall existing official Mi Fit app " +
@@ -95,6 +100,7 @@ class SelectFragment : Fragment(), AnkoLogger {
                 if (resultCode != Activity.RESULT_OK || data == null) return
                 data.data?.let { uri ->
                     preferences.edit().putString(PREF_FREE_MY_BAND_URI, uri.toString()).apply()
+                    viewModel.folderSelected.value = true
                 }
             }
             else -> super.onActivityResult(requestCode, resultCode, data)

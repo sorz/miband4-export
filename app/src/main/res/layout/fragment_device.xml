@@ -142,6 +142,7 @@
                         android:layout_marginTop="8dp"
                         android:layout_marginEnd="16dp"
                         android:text="Export"
+                        app:iconGravity="end"
                         app:icon="@drawable/ic_baseline_reply_24"
                         app:layout_constraintEnd_toEndOf="parent"
                         app:layout_constraintTop_toBottomOf="@+id/textView7" />
@@ -228,6 +229,7 @@
                         android:layout_marginEnd="16dp"
                         android:text="Export"
                         app:icon="@drawable/ic_baseline_reply_24"
+                        app:iconGravity="end"
                         app:layout_constraintBottom_toBottomOf="parent"
                         app:layout_constraintEnd_toEndOf="parent"
                         app:layout_constraintTop_toTopOf="@+id/delete_heart_button" />
