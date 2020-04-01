@@ -254,8 +254,8 @@ class MiBand (
             while (true) {
                 readCharChange(charActivity).asSequence().drop(1).chunked(4).forEach { pkg ->
                     val step = pkg[2].toInt() and 0xff
-                    val heartRate = pkg[3].toInt()
-                    if (step != 0 || heartRate != -1) {
+                    val heartRate = pkg[3].toInt() and 0xff
+                    if (step != 0 || heartRate != 0xff) {
                         debug { "$time step $step heart $heartRate bpm" }
                         records.add(Record(time, step, heartRate))
                     } else {
