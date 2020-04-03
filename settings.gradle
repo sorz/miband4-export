@@ -1,3 +1,2 @@
-include ':app', ':gattkt'
-project(":gattkt").projectDir = file("../gattkt/gattkt")
+include ':app'
 rootProject.name = "Free Band"
