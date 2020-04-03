@@ -2,10 +2,7 @@ package cn.edu.sustech.cse.miband
 
 import android.annotation.SuppressLint
 import android.bluetooth.*
-import android.bluetooth.BluetoothGattDescriptor.DISABLE_NOTIFICATION_VALUE
-import android.bluetooth.BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
 import android.content.Context
-import androidx.collection.CircularArray
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleObserver
 import androidx.lifecycle.LifecycleOwner
@@ -17,13 +14,13 @@ import org.jetbrains.anko.AnkoLogger
 import org.jetbrains.anko.debug
 import org.jetbrains.anko.info
 import org.jetbrains.anko.warn
+import org.sorz.lab.gattkt.GattIo
+import org.sorz.lab.gattkt.connectGattIo
 import org.threeten.bp.LocalDateTime
 import java.io.IOException
 import java.lang.IllegalArgumentException
-import java.lang.IllegalStateException
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
-import java.util.*
 import javax.crypto.Cipher
 import javax.crypto.Cipher.ENCRYPT_MODE
 import javax.crypto.spec.SecretKeySpec
@@ -47,7 +44,7 @@ class MiBand (
     key: String,
     lifecycleOwner: LifecycleOwner?
 ) : LifecycleObserver, AnkoLogger {
-    private lateinit var bleGatt: BluetoothGatt
+    private lateinit var gattIo: GattIo
     private lateinit var serviceBand1: BluetoothGattService
     private lateinit var serviceBand2: BluetoothGattService
     private lateinit var serviceHeart: BluetoothGattService
@@ -57,162 +54,16 @@ class MiBand (
         key.substring(i * 2, i * 2 + 2).toInt(16).toByte()
     }
 
-    private var connectContinuation: Continuation<Unit>? = null
-    private var charWriteCont: MutableMap<UUID, Continuation<Unit>> = mutableMapOf()
-    private var descWriteCont: MutableMap<Pair<UUID, UUID>, Continuation<Unit>> = mutableMapOf()
-    private var charChangeCont: MutableMap<UUID, Continuation<ByteArray>> = mutableMapOf()
-    private var charChangeQueue: MutableMap<UUID, CircularArray<ByteArray>> = mutableMapOf()
-
-
     init {
         lifecycleOwner?.lifecycle?.addObserver(this)
     }
 
-    private val gattCallback = object : BluetoothGattCallback() {
-        override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
-            bleGatt = gatt
-            when (newState) {
-                BluetoothProfile.STATE_CONNECTED -> {
-                    debug { "GATT connected, discover services" }
-                    if (!gatt.discoverServices())
-                        throwException(IOException("fail to discover services"))
-                }
-                BluetoothProfile.STATE_DISCONNECTED -> {
-                    throwException(IOException("GATT disconnected"))
-                }
-                else -> error("Unknown GATT state: $newState")
-            }
-        }
-
-        override fun onServicesDiscovered(gatt: BluetoothGatt, status: Int) {
-            debug("service discovered ${gatt.services}")
-            serviceBand1 = gatt.getService(UUID_SERVICE_MIBAND1)
-                ?: return throwException(IOException("no MiBand1 service found"))
-            serviceBand2 = gatt.getService(UUID_SERVICE_MIBAND2)
-                ?: return throwException(IOException("no miBand2 service found"))
-            serviceHeart = gatt.getService(UUID_SERVICE_HEART_RATE)
-                ?: return throwException(IOException("no heart rate service found"))
-
-            connectContinuation?.resume(Unit)
-            connectContinuation = null
-        }
-
-        override fun onDescriptorWrite(
-            gatt: BluetoothGatt,
-            descriptor: BluetoothGattDescriptor,
-            status: Int
-        ) {
-            debug {
-                "descriptor WRITTEN ${descriptor.characteristic.uuid} $status " +
-                "${descriptor.value?.contentToString()}"
-            }
-            val key = Pair(descriptor.characteristic.uuid, descriptor.uuid)
-            val cont = descWriteCont.remove(key)
-            if (cont == null) {
-                warn("descriptor $descriptor not found")
-                return
-            }
-
-            if (status != BluetoothGatt.GATT_SUCCESS)
-                cont.resumeWithException(IOException("Fail to write descriptor: $status"))
-            else
-                cont.resume(Unit)
-        }
-
-        override fun onCharacteristicWrite(gatt: BluetoothGatt,
-                                           char: BluetoothGattCharacteristic, status: Int) {
-            debug { "characteristic WRITTEN ${char.uuid} $status ${char.value?.contentToString()}" }
-            val cont = charWriteCont.remove(char.uuid)
-            if (cont == null) {
-                warn("characteristic $char not found")
-                return
-            }
-            if (status != BluetoothGatt.GATT_SUCCESS)
-                cont.resumeWithException(IOException("Fail to write characteristic: $status"))
-            else
-                cont.resume(Unit)
-        }
-
-        override fun onCharacteristicChanged(gatt: BluetoothGatt, char: BluetoothGattCharacteristic) {
-            debug { "characteristic CHANGED ${char.uuid} ${char.value?.contentToString()}" }
-            charChangeCont.remove(char.uuid)?.resume(char.value)
-                ?: charChangeQueue.getOrPut(char.uuid) { CircularArray() }.addLast(char.value)
-        }
-
-        override fun onCharacteristicRead(
-            gatt: BluetoothGatt,
-            char: BluetoothGattCharacteristic,
-            status: Int
-        ) {
-            debug("characteristic READ ${char.uuid} ${char.value?.contentToString()}")
-        }
-    }
-
-    private suspend fun enableNotification(char: BluetoothGattCharacteristic, enable: Boolean) {
-        val desc = char.getDescriptor(UUID_CLIENT_CHAR_CONFIG)
-            ?: throw IOException("missing config descriptor on $char")
-        val key = Pair(char.uuid, desc.uuid)
-        if (descWriteCont.containsKey(key))
-            throw IllegalStateException("last enableNotification() not finish")
-
-        if (!bleGatt.setCharacteristicNotification(char, enable))
-            throw IOException("fail to set notification on $char")
-
-        return suspendCoroutine { cont ->
-            descWriteCont[key] = cont
-            desc.value = if (enable) ENABLE_NOTIFICATION_VALUE else DISABLE_NOTIFICATION_VALUE
-            if (!bleGatt.writeDescriptor(desc))
-                cont.resumeWithException(IOException("fail to config descriptor $this"))
-        }
-    }
-
-    private suspend fun writeCharacteristic(char: BluetoothGattCharacteristic, value: ByteArray) {
-        if (charWriteCont.containsKey(char.uuid))
-            throw IllegalStateException("last writeCharacteristic() not finish")
-        return suspendCoroutine { cont ->
-            charWriteCont[char.uuid] = cont
-            char.value = value
-            if (!bleGatt.writeCharacteristic(char))
-                throw IOException("fail to write characteristic ${char.uuid}")
-        }
-    }
-
-    private suspend fun readCharChange(char: BluetoothGattCharacteristic): ByteArray {
-        val queuedData = charChangeQueue[char.uuid]?.takeIf { !it.isEmpty }?.popFirst()
-        if (queuedData != null) return queuedData
-
-        if (charChangeCont.containsKey(char.uuid))
-            throw IllegalStateException("last enableNotification() not finish")
-        return try {
-            suspendCancellableCoroutine { cont ->
-                charChangeCont[char.uuid] = cont
-            }
-        } finally {
-            charChangeCont.remove(char.uuid)
-        }
-    }
-
-    private fun clearCharChangeQueue(char: BluetoothGattCharacteristic) {
-        charChangeQueue.remove(char.uuid)
-    }
-
-    private fun throwException(throwable: Throwable) {
-        warn { "throw exception ${throwable.message}" }
-        connectContinuation?.apply {
-            resumeWithException(throwable)
-            connectContinuation = null
-        }
-        charWriteCont.values.forEach { it.resumeWithException(throwable) }
-        descWriteCont.values.forEach { it.resumeWithException(throwable) }
-    }
-
     suspend fun connect() {
-        if (connectContinuation != null) throw IllegalStateException("repeated invoking connect()")
-        suspendCoroutine { cont: Continuation<Unit> ->
-            connectContinuation = cont
-            debug { "connecting to $device" }
-            device.connectGatt(context, true, gattCallback)
-        }
+        debug { "connecting to $device" }
+        gattIo = device.connectGattIo(context)
+        serviceBand1 = gattIo.requireService(UUID_SERVICE_MIBAND1)
+        serviceBand2 = gattIo.requireService(UUID_SERVICE_MIBAND2)
+        serviceHeart = gattIo.requireService(UUID_SERVICE_HEART_RATE)
         debug { "$device connected, auth self" }
         authSelf()
     }
@@ -220,8 +71,8 @@ class MiBand (
     suspend fun setHeartMonitorConfig(enable: Boolean, intervalMinute: Byte) {
         val charCtrl = serviceHeart.getCharacteristic(UUID_CHAR_HEART_RATE_CTRL)
             ?: throw IOException("char heart rate control not found")
-        writeCharacteristic(charCtrl, byteArrayOf(0x15, 0x00, if (enable) 0x01 else 0x00))
-        writeCharacteristic(charCtrl, byteArrayOf(0x14, intervalMinute))
+        gattIo.writeCharacteristic(charCtrl, byteArrayOf(0x15, 0x00, if (enable) 0x01 else 0x00))
+        gattIo.writeCharacteristic(charCtrl, byteArrayOf(0x14, intervalMinute))
     }
 
     suspend fun fetchData(since: LocalDateTime) = withContext(coroutineContext) {
@@ -230,44 +81,47 @@ class MiBand (
         val charActivity = serviceBand1.getCharacteristic(UUID_CHAR_ACTIVITY_DATA)
             ?: throw IOException("char activity data not found")
 
-        enableNotification(charFetch, true)
-        enableNotification(charActivity, true)
-        clearCharChangeQueue(charFetch)
-        clearCharChangeQueue(charActivity)
+        gattIo.enableNotification(charFetch)
+        gattIo.enableNotification(charActivity)
+        gattIo.clearGattCharacteristicChangeQueue(charFetch)
+        gattIo.clearGattCharacteristicChangeQueue(charActivity)
 
         // Send trigger to charFetch
         val trigger = byteArrayOf(0x01, 0x01) + since.toByteArray() + byteArrayOf(0x00, 0x17)
-        writeCharacteristic(charFetch, trigger)
+        gattIo.writeCharacteristic(charFetch, trigger)
 
-        val resp = readCharChange(charFetch)
+        val resp = gattIo.readCharacteristicChange(charFetch)
         debug { "resp = ${resp.contentToString()}" }
         if (!resp.startsWith(FETCH_CHAR_RESP_START_TIME))
             throw IOException("unexpected response: ${resp.contentToString()}")
         val timeStart = resp.sliceArray(7..12).toDateTime()
         debug { "data since $timeStart" }
-        writeCharacteristic(charFetch, FETCH_CHAR_CMD_CONFIRM)
+        gattIo.writeCharacteristic(charFetch, FETCH_CHAR_CMD_CONFIRM)
 
         // Receive data
         val records: MutableList<Record> = mutableListOf()
         val receiving = launch {
             var time = LocalDateTime.from(timeStart)
             while (true) {
-                readCharChange(charActivity).asSequence().drop(1).chunked(4).forEach { pkg ->
-                    val step = pkg[2].toInt() and 0xff
-                    val heartRate = pkg[3].toInt() and 0xff
-                    if (step != 0 || heartRate != 0xff) {
-                        debug { "$time step $step heart $heartRate bpm" }
-                        records.add(Record(time, step, heartRate))
-                    } else {
-                        debug { "$time no data"}
+                gattIo.readCharacteristicChange(charActivity)
+                    .asSequence().drop(1).chunked(4).forEach { pkg ->
+                        val step = pkg[2].toInt() and 0xff
+                        val heartRate = pkg[3].toInt() and 0xff
+                        if (step != 0 || heartRate != 0xff) {
+                            debug { "$time step $step heart $heartRate bpm" }
+                            records.add(Record(time, step, heartRate))
+                        } else {
+                            debug { "$time no data"}
+                        }
+                        time = time.plusMinutes(1)
                     }
-                    time = time.plusMinutes(1)
-                }
             }
         }
-        val end = readCharChange(charFetch)
+        val end = gattIo.readCharacteristicChange(charFetch)
         receiving.cancelAndJoin()
         debug { "end reading" }
+        gattIo.disableNotificationOrIndication(charFetch)
+        gattIo.disableNotificationOrIndication(charActivity)
         records
     }
 
@@ -278,24 +132,24 @@ class MiBand (
             ?: throw IOException("char heart rate measure not found")
 
         // Stop monitor continues & manual
-        writeCharacteristic(charHeartRateCtrl, HEART_CHAR_CMD_STOP_CONTINUES)
-        writeCharacteristic(charHeartRateCtrl, HEART_CHAR_CMD_STOP_MANUAL)
+        gattIo.writeCharacteristic(charHeartRateCtrl, HEART_CHAR_CMD_STOP_CONTINUES)
+        gattIo.writeCharacteristic(charHeartRateCtrl, HEART_CHAR_CMD_STOP_MANUAL)
 
         // Start monitor continues
-        enableNotification(charHeartRateData, true)
-        writeCharacteristic(charHeartRateCtrl, HEART_CHAR_CMD_START_CONTINUES)
+        gattIo.enableNotification(charHeartRateData)
+        gattIo.writeCharacteristic(charHeartRateCtrl, HEART_CHAR_CMD_START_CONTINUES)
 
         // Send ping every 12 seconds
         val keepAlive = launch {
             while (true) {
                 delay(12_000)
-                writeCharacteristic(charHeartRateCtrl, byteArrayOf(0x16))
+                gattIo.writeCharacteristic(charHeartRateCtrl, byteArrayOf(0x16))
             }
         }
         // Receive data
         try {
             while (true) {
-                val resp = readCharChange(charHeartRateData)
+                val resp = gattIo.readCharacteristicChange(charHeartRateData)
                 if (resp[0] != 0.toByte()) {
                     channel.close(IOException("Unexpected data: ${resp.contentToString()}"))
                     break
@@ -310,8 +164,8 @@ class MiBand (
             debug("realtimeHeartRateJob cancelled")
             keepAlive.cancel()
             channel.cancel(err)
-            writeCharacteristic(charHeartRateCtrl, HEART_CHAR_CMD_STOP_CONTINUES)
-            enableNotification(charHeartRateData, false)
+            gattIo.writeCharacteristic(charHeartRateCtrl, HEART_CHAR_CMD_STOP_CONTINUES)
+            gattIo.disableNotificationOrIndication(charHeartRateData)
         } catch (err: IOException) {
             warn { "error on read heat beat: $err" }
             channel.close(err)
@@ -326,12 +180,12 @@ class MiBand (
         val charAuth = serviceBand2.getCharacteristic(UUID_CHAR_AUTH)
             ?: throw IOException("char auth not found")
 
-        enableNotification(charAuth, true)
-        clearCharChangeQueue(charAuth)
+        gattIo.enableNotification(charAuth)
+        gattIo.clearGattCharacteristicChangeQueue(charAuth)
 
         // Request challenge
-        writeCharacteristic(charAuth, AUTH_CHAR_CMD_REQUEST_CHALLENGE)
-        val resp = readCharChange(charAuth)
+        gattIo.writeCharacteristic(charAuth, AUTH_CHAR_CMD_REQUEST_CHALLENGE)
+        val resp = gattIo.readCharacteristicChange(charAuth)
         if (!resp.startsWith(AUTH_CHAR_RESP_CHALLENGE))
             throw IOException("expect AUTH_CHAR_RESP_CHALLENGE, got ${resp.contentToString()}")
         if (resp.size != AUTH_CHAR_RESP_CHALLENGE.size + 16)
@@ -340,15 +194,15 @@ class MiBand (
 
         // Send back challenge
         val response = encryptChallenge(challenge)
-        writeCharacteristic(charAuth, AUTH_CHAR_CMD_CHALLENGE_RESPONSE + response)
-        val result = readCharChange(charAuth)
+        gattIo.writeCharacteristic(charAuth, AUTH_CHAR_CMD_CHALLENGE_RESPONSE + response)
+        val result = gattIo.readCharacteristicChange(charAuth)
         if (!result.contentEquals(AUTH_CHAR_RESP_AUTH_OK)) {
             warn { "self auth failed, response: ${result.contentToString()}" }
             throw IOException("Fail to authenticate self (wrong key?)")
         }
         debug { "self authenticated" }
 
-        enableNotification(charAuth, false)
+        gattIo.disableNotificationOrIndication(charAuth)
     }
 
     @SuppressLint("GetInstance")
@@ -362,9 +216,8 @@ class MiBand (
     @OnLifecycleEvent(Lifecycle.Event.ON_DESTROY)
     fun disconnect() {
         debug("disconnecting")
-        connectContinuation?.resumeWithException(CancellationException("disconnect"))
-        if (::bleGatt.isInitialized)
-            bleGatt.close()
+        if (::gattIo.isInitialized)
+            gattIo.gatt.close()
     }
 }
 
