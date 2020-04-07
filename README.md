@@ -10,6 +10,14 @@ Pairing key is requried to do the exporting. You may want to install
 a [modified Mi Fit app](https://www.freemyband.com/) to get the key.
 USE THIS AT YOUR OWN RISK.
 
+## Screenshots
+<p float="left">
+  <img alt="Screenshot 1" width="360"
+    src="/screenshot/Screenshot-01.png?raw=true">
+  <img alt="Screenshot 2" width="360"
+    src="/screenshot/Screenshot-02.png?raw=true">
+</p>
+
 ## Related projects
 
 - [Gadgetbridge](https://gadgetbridge.org/)
